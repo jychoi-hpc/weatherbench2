@@ -48,6 +48,7 @@ import numpy as np
 from weatherbench2 import flag_utils
 from weatherbench2 import regridding
 import xarray_beam
+import pandas as pd
 
 INPUT_PATH = flags.DEFINE_string('input_path', None, help='zarr inputs')
 OUTPUT_PATH = flags.DEFINE_string('output_path', None, help='zarr outputs')
@@ -84,10 +85,17 @@ NUM_THREADS = flags.DEFINE_integer(
     help='Number of chunks to read/write in parallel per worker.',
 )
 RUNNER = flags.DEFINE_string('runner', None, 'beam.runners.Runner')
+YEAR = flags.DEFINE_integer(
+    'year', None, help='year'
+)
 
 
 def main(argv):
   source_ds, input_chunks = xarray_beam.open_zarr(INPUT_PATH.value)
+  if YEAR.value is not None:
+    source_ds = source_ds.sel(time=slice(f"{YEAR.value}-01-01", f"{YEAR.value}-12-31"))
+  print("source_ds:", source_ds)
+  print("input_chunks:", input_chunks)
 
   # Rename latitude/longitude names
   renames = {
