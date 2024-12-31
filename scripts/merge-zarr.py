@@ -3,12 +3,14 @@ import os
 
 if __name__ == "__main__":
 
-    outdir = "/lustre/orion/world-shared/lrn036/jyc/frontier/weatherbench2/datasets/regrid"
-    outfile = os.path.join(outdir, f"1979-2022-6h-360x181.zarr")
+    outdir = "datasets/regrid"
+    # outfile = os.path.join(outdir, f"1959-2022-6h-360x181.zarr")
+    outfile = os.path.join(outdir, f"1959-2022-6h-256x128.zarr")
     isfirst = True
     ds_list = list()
-    for year in range(1979, 2022):
-        fname = os.path.join(outdir, f"{year}-6h-360x181.zarr")
+    for year in range(1959, 2022):
+        # fname = os.path.join(outdir, f"{year}-6h-360x181.zarr")
+        fname = os.path.join(outdir, f"{year}-6h-256x128.zarr")
         if os.path.exists(fname):
             print("Read:", fname)
             ds = xr.open_zarr(fname)
