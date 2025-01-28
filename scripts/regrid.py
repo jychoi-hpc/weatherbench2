@@ -49,122 +49,218 @@ from weatherbench2 import flag_utils
 from weatherbench2 import regridding
 import xarray_beam
 import pandas as pd
+import os
+from tqdm import tqdm
+from dask.diagnostics import ProgressBar
+import xarray as xr
+from filelock import FileLock, SoftFileLock, Timeout
 
-INPUT_PATH = flags.DEFINE_string('input_path', None, help='zarr inputs')
-OUTPUT_PATH = flags.DEFINE_string('output_path', None, help='zarr outputs')
+INPUT_PATH = flags.DEFINE_string("input_path", None, help="zarr inputs")
+OUTPUT_PATH = flags.DEFINE_string("output_path", None, help="zarr outputs")
 OUTPUT_CHUNKS = flag_utils.DEFINE_chunks(
-    'output_chunks', '', help='desired chunking of output zarr'
+    "output_chunks", "", help="desired chunking of output zarr"
 )
 LATITUDE_NODES = flags.DEFINE_integer(
-    'latitude_nodes', None, help='number of desired latitude nodes'
+    "latitude_nodes", None, help="number of desired latitude nodes"
 )
 LONGITUDE_NODES = flags.DEFINE_integer(
-    'longitude_nodes', None, help='number of desired longitude nodes'
+    "longitude_nodes", None, help="number of desired longitude nodes"
+)
+REGRIDDING_SCALE = flags.DEFINE_integer(
+    "scale", None, help="regridding_scale"
 )
 LATITUDE_SPACING = flags.DEFINE_enum(
-    'latitude_spacing',
-    'equiangular_with_poles',
-    ['equiangular_with_poles', 'equiangular_without_poles'],
-    help='desired latitude spacing',
+    "latitude_spacing",
+    "equiangular_with_poles",
+    ["equiangular_with_poles", "equiangular_without_poles"],
+    help="desired latitude spacing",
 )
 REGRIDDING_METHOD = flags.DEFINE_enum(
-    'regridding_method',
-    'conservative',
-    ['nearest', 'bilinear', 'conservative'],
-    help='regridding method',
+    "regridding_method",
+    "conservative",
+    ["nearest", "bilinear", "conservative"],
+    help="regridding method",
 )
 LATITUDE_NAME = flags.DEFINE_string(
-    'latitude_name', 'latitude', help='Name of latitude dimension in dataset'
+    "latitude_name", "latitude", help="Name of latitude dimension in dataset"
 )
 LONGITUDE_NAME = flags.DEFINE_string(
-    'longitude_name', 'longitude', help='Name of longitude dimension in dataset'
+    "longitude_name", "longitude", help="Name of longitude dimension in dataset"
 )
 NUM_THREADS = flags.DEFINE_integer(
-    'num_threads',
+    "num_threads",
     None,
-    help='Number of chunks to read/write in parallel per worker.',
+    help="Number of chunks to read/write in parallel per worker.",
 )
-RUNNER = flags.DEFINE_string('runner', None, 'beam.runners.Runner')
-YEAR = flags.DEFINE_integer(
-    'year', None, help='year'
-)
+RUNNER = flags.DEFINE_string("runner", None, "beam.runners.Runner")
+YEAR = flags.DEFINE_integer("year", None, help="year")
+MONTH = flags.DEFINE_integer("month", None, help="month")
+FILLNA = flags.DEFINE_bool("fillna", False, "fillna")
 
+class ProgressDoFn(beam.DoFn):
+    """A custom DoFn to track progress with tqdm."""
+    def __init__(self, total_chunks):
+        self.total_chunks = total_chunks
+        self.progress_bar = None
+
+    def setup(self):
+        # Initialize tqdm once per worker
+        if self.progress_bar is None:
+            self.progress_bar = tqdm(total=self.total_chunks, desc="Processing Chunks", position=0, leave=True)
+
+    def process(self, element):
+        # Update progress bar
+        self.progress_bar.update(1)
+        yield element
+
+    def teardown(self):
+        # Close tqdm when done
+        if self.progress_bar is not None:
+            self.progress_bar.close()
+            self.progress_bar = None
 
 def main(argv):
-  source_ds, input_chunks = xarray_beam.open_zarr(INPUT_PATH.value)
-  if YEAR.value is not None:
-    source_ds = source_ds.sel(time=slice(f"{YEAR.value}-01-01", f"{YEAR.value}-12-31"))
-  print("source_ds:", source_ds)
-  print("input_chunks:", input_chunks)
-
-  # Rename latitude/longitude names
-  renames = {
-      LONGITUDE_NAME.value: 'longitude',
-      LATITUDE_NAME.value: 'latitude',
-  }
-  source_ds = source_ds.rename(renames)
-  input_chunks = {renames.get(k, k): v for k, v in input_chunks.items()}
-
-  # Lat/lon must be single chunk for regridding.
-  input_chunks['longitude'] = -1
-  input_chunks['latitude'] = -1
-
-  if LATITUDE_SPACING.value == 'equiangular_with_poles':
-    lat_start = -90
-    lat_stop = 90
-  else:
-    assert LATITUDE_SPACING.value == 'equiangular_without_poles'
-    lat_start = -90 + 0.5 * 180 / LATITUDE_NODES.value
-    lat_stop = 90 - 0.5 * 180 / LATITUDE_NODES.value
-
-  old_lon = source_ds.coords['longitude'].data
-  old_lat = source_ds.coords['latitude'].data
-
-  new_lon = np.linspace(0, 360, num=LONGITUDE_NODES.value, endpoint=False)
-  new_lat = np.linspace(
-      lat_start, lat_stop, num=LATITUDE_NODES.value, endpoint=True
-  )
-
-  regridder_cls = {
-      'nearest': regridding.NearestRegridder,
-      'bilinear': regridding.BilinearRegridder,
-      'conservative': regridding.ConservativeRegridder,
-  }[REGRIDDING_METHOD.value]
-
-  source_grid = regridding.Grid.from_degrees(lon=old_lon, lat=np.sort(old_lat))
-  target_grid = regridding.Grid.from_degrees(lon=new_lon, lat=new_lat)
-  regridder = regridder_cls(source_grid, target_grid)
-
-  template = (
-      xarray_beam.make_template(source_ds)
-      .isel(longitude=0, latitude=0, drop=True)
-      .expand_dims(longitude=new_lon, latitude=new_lat)
-      .transpose(..., 'longitude', 'latitude')
-  )
-
-  output_chunks = OUTPUT_CHUNKS.value
-  print('OUTPUT_CHUNKS:', repr(output_chunks))
-
-  with beam.Pipeline(runner=RUNNER.value, argv=argv) as root:
-    _ = (
-        root
-        | xarray_beam.DatasetToChunks(
-            source_ds,
-            input_chunks,
-            split_vars=True,
-            num_threads=NUM_THREADS.value,
+    source_ds, input_chunks = xarray_beam.open_zarr(INPUT_PATH.value)
+    if YEAR.value is not None:
+        source_ds = source_ds.sel(
+            time=slice(f"{YEAR.value}-01-01", f"{YEAR.value}-12-31")
         )
-        | 'Regrid'
-        >> beam.MapTuple(lambda k, v: (k, regridder.regrid_dataset(v)))
-        | xarray_beam.ConsolidateChunks(output_chunks)
-        | xarray_beam.ChunksToZarr(
-            OUTPUT_PATH.value,
-            template,
-            output_chunks,
-            num_threads=NUM_THREADS.value,
-        )
+        if MONTH.value is not None:
+            source_ds = source_ds.sel(
+                time=slice(f"{YEAR.value}-{MONTH.value:02d}", f"{YEAR.value}-{MONTH.value:02d}")
+            )
+    print("source_ds:", source_ds)
+    print("input_chunks:", input_chunks)
+
+    # Rename latitude/longitude names
+    renames = {
+        LONGITUDE_NAME.value: "longitude",
+        LATITUDE_NAME.value: "latitude",
+    }
+    source_ds = source_ds.rename(renames)
+    input_chunks = {renames.get(k, k): v for k, v in input_chunks.items()}
+
+    # Lat/lon must be single chunk for regridding.
+    input_chunks["longitude"] = -1
+    input_chunks["latitude"] = -1
+
+    if "prism" not in INPUT_PATH.value and "daymet" not in INPUT_PATH.value:
+        ## (2025/01) temporarily disable
+        if LATITUDE_SPACING.value == "equiangular_with_poles":
+            lat_start = -90
+            lat_stop = 90
+        else:
+            assert LATITUDE_SPACING.value == "equiangular_without_poles"
+            lat_start = -90 + 0.5 * 180 / LATITUDE_NODES.value
+            lat_stop = 90 - 0.5 * 180 / LATITUDE_NODES.value
+
+        old_lon = source_ds.coords["longitude"].data
+        old_lat = source_ds.coords["latitude"].data
+
+        new_lon = np.linspace(0, 360, num=LONGITUDE_NODES.value, endpoint=False)
+        new_lat = np.linspace(lat_start, lat_stop, num=LATITUDE_NODES.value, endpoint=True)        
+    else:
+        ## prism, daymet
+        old_lon = source_ds.coords["longitude"].data
+        old_lat = source_ds.coords["latitude"].data
+
+        regrid_scale = REGRIDDING_SCALE.value
+        lon_start = old_lon[0]
+        lon_interval = regrid_scale * 2.5 / 60  # 2.5 minutes in degrees
+        lon_n = len(old_lon)
+        m = lon_n // 4 if (lon_n // 4) % 2 == 0 else lon_n // 4 - 1
+        lon_n = m * 4 // regrid_scale
+        lon_end = lon_start + lon_interval * lon_n
+        new_lon = np.linspace(lon_start, lon_end, lon_n, endpoint=False)
+        assert np.isclose(new_lon[1] - new_lon[0], lon_interval)
+
+        lat_start = old_lat[0]
+        lat_interval = regrid_scale * 2.5 / 60  # 2.5 minutes in degrees
+        lat_n = len(old_lat)
+        m = lat_n // 4 if (lat_n // 4) % 2 == 0 else lat_n // 4 - 1
+        lat_n = m * 4 // regrid_scale
+        lat_end = lat_start + lat_interval * lat_n
+        new_lat = np.linspace(lat_start, lat_end, lat_n + 1, endpoint=True)
+        print("interval:", lon_interval * 60, lat_interval * 60)
+        print("gridshape:", f"{len(new_lon)}x{len(new_lat)}")
+
+    output_chunks = OUTPUT_CHUNKS.value
+    print("OUTPUT_CHUNKS:", repr(output_chunks))
+
+    output_path = OUTPUT_PATH.value
+    if "%{gridshape}" in output_path:
+        output_path = output_path.replace("%{gridshape}", f"{len(new_lon)}x{len(new_lat)}")
+        print("output_path:", output_path)
+    if os.path.exists(output_path):
+        print("Skip:", output_path)
+        return
+
+    dirname = os.path.dirname(output_path)
+    basename = os.path.basename(output_path)
+    lockfile = os.path.join(dirname, "." + basename + ".lock")
+    lock = SoftFileLock(lockfile, timeout=0)
+    try:
+        lock.acquire()
+    except Timeout:
+        ## someone is working
+        return
+
+    regridder_cls = {
+        "nearest": regridding.NearestRegridder,
+        "bilinear": regridding.BilinearRegridder,
+        "conservative": regridding.ConservativeRegridder,
+    }[REGRIDDING_METHOD.value]
+
+    source_grid = regridding.Grid.from_degrees(lon=old_lon, lat=np.sort(old_lat))
+    target_grid = regridding.Grid.from_degrees(lon=new_lon, lat=new_lat)
+    regridder = regridder_cls(source_grid, target_grid)
+
+    template = (
+        xarray_beam.make_template(source_ds)
+        .isel(longitude=0, latitude=0, drop=True)
+        .expand_dims(longitude=new_lon, latitude=new_lat)
+        .transpose(..., "longitude", "latitude")
     )
 
+    chunked_ds = source_ds.chunk(input_chunks)
+    # Calculate total number of chunks
+    total_chunks = sum(
+        np.prod([len(c) for c in da.chunks])
+        for da in chunked_ds.data_vars.values()
+    )
+    print(f"Total number of chunks across all variables: {total_chunks}")    
 
-if __name__ == '__main__':
-  app.run(main)
+    with ProgressBar():
+        with beam.Pipeline(runner=RUNNER.value, argv=argv) as root:
+            _ = (
+                root
+                | xarray_beam.DatasetToChunks(
+                    source_ds,
+                    input_chunks,
+                    split_vars=True,
+                    num_threads=NUM_THREADS.value,
+                )
+                | "Progress" >> beam.ParDo(ProgressDoFn(total_chunks))
+                | "Regrid" >> beam.MapTuple(lambda k, v: (k, regridder.regrid_dataset(v)))
+                | xarray_beam.ConsolidateChunks(output_chunks)
+                | xarray_beam.ChunksToZarr(
+                    output_path,
+                    template,
+                    output_chunks,
+                    num_threads=NUM_THREADS.value,
+                )
+            )
+
+        # ds = xr.open_zarr(output_path)
+        # print("NULL?:", ds.isnull().any().compute())
+    
+    lock.release()
+
+if __name__ == "__main__":
+    from dask.distributed import Client
+
+    # Create a Dask client
+    client = Client()
+    print(f"Number of Dask workers: {len(client.nthreads())}")
+
+    app.run(main)

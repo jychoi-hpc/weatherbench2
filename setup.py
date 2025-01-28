@@ -18,7 +18,7 @@ import setuptools
 base_requires = [
     'apache_beam>=2.31.0',
     'jax[cpu]',
-    'numpy',
+    'numpy==1.26.4',
     'pandas==2.0.3',
     'scipy',
     'scikit-learn',

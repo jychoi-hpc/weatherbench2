@@ -10,4 +10,5 @@ which python
 
 export PATH=/lustre/orion/lrn036/world-shared/jyc/frontier/sw/google-cloud-sdk/bin:$PATH
 
-python climatology_simple.py --varname $1
+# python -u climatology_simple.py --grid=256x128 --varname $1
+python -u climatology_simple.py --grid=360x181 --chunk_size=32 --varname $1

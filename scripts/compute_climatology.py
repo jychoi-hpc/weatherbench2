@@ -46,6 +46,11 @@ from weatherbench2 import flag_utils
 from weatherbench2 import utils
 import xarray as xr
 import xarray_beam as xbeam
+from dask.distributed import Client
+import logging
+
+# Set up logging to show debug-level messages
+logging.basicConfig(level=logging.DEBUG)
 
 DEFAULT_SEEPS_THRESHOLD_MM = (
     "{'total_precipitation_24hr':0.25, 'total_precipitation_6hr':0.1}"
@@ -124,6 +129,13 @@ NUM_THREADS = flags.DEFINE_integer(
     'num_threads',
     None,
     help='Number of chunks to read/write in parallel per worker.',
+)
+VARIABLE_NAME = flags.DEFINE_string(
+    'variable_name',
+    '',
+    help=(
+        'variable name'
+    ),
 )
 
 
@@ -248,6 +260,7 @@ def compute_stat_chunk(
   }
 
   if frequency == 'hourly' and METHOD.value == 'explicit':
+    print("compute_kwargs:", compute_kwargs)
     clim_chunk = utils.compute_hourly_stat(
         **compute_kwargs, hour_interval=hour_interval
     )
@@ -281,6 +294,9 @@ def main(argv: list[str]) -> None:
 
   # drop static variables, for which the climatology calculation would fail
   obs = obs.drop_vars([k for k, v in obs.items() if 'time' not in v.dims])
+  # print("VARIABLE_NAME:", VARIABLE_NAME.value)
+  # print("Drop:", [k for k, v in obs.items() if k not in [VARIABLE_NAME.value,]])
+  # obs = obs.drop_vars([k for k, v in obs.items() if k not in [VARIABLE_NAME.value,]])
 
   input_chunks_without_time = {
       k: v for k, v in input_chunks.items() if k != 'time'
@@ -305,6 +321,8 @@ def main(argv: list[str]) -> None:
     raise ValueError('cannot include time in working chunks')
   in_working_chunks = dict(working_chunks, time=-1)
   out_working_chunks = dict(working_chunks, **clim_chunks)
+  print("in_working_chunks:", in_working_chunks)
+  print("out_working_chunks:", out_working_chunks)
 
   output_chunks = input_chunks_without_time.copy()
   output_chunks.update(clim_chunks)
@@ -355,6 +373,8 @@ def main(argv: list[str]) -> None:
 
   with beam.Pipeline(runner=RUNNER.value, argv=argv) as root:
     # Read and Rechunk
+    print("input_chunks:", input_chunks)
+    print("in_working_chunks:", in_working_chunks)
     pcoll = (
         root
         | xbeam.DatasetToChunks(
@@ -409,6 +429,10 @@ def main(argv: list[str]) -> None:
         )
       pcolls.append(pcoll_tmp)
 
+    print("pcolls:", len(pcolls))
+    print("out_working_chunks:", out_working_chunks)
+    print("output_chunks:", output_chunks)
+
     # Rechunk and write output
     _ = (
         pcolls
@@ -430,4 +454,6 @@ def main(argv: list[str]) -> None:
 
 
 if __name__ == '__main__':
+  client = Client(n_workers=16, threads_per_worker=2, memory_limit='16GB', dashboard_address=":8798")
   app.run(main)
+  print("Done.")

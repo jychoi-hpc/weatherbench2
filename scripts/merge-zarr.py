@@ -1,39 +1,64 @@
 import xarray as xr
 import os
+from dask.diagnostics import ProgressBar
+import argparse
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("filenames", nargs='+', help="list of files")
+    parser.add_argument("--outfile", help="outfile", default="output-%{gridshape}.zarr")
+    parser.add_argument("--chunk_time", type=int, default=100)
+    # parser.add_argument("nlon", type=int, help="longitude")
+    # parser.add_argument("--use_month", action='store_true', help="use_month")
+    args = parser.parse_args()
 
-    outdir = "datasets/regrid"
-    # outfile = os.path.join(outdir, f"1959-2022-6h-360x181.zarr")
-    outfile = os.path.join(outdir, f"1959-2022-6h-256x128.zarr")
+
+
+    # nlon = args.nlon
+    # nlat = nlon // 2 + 1
+
+    # outdir = "datasets/era5"
+    # # gridshape = "64x33"
+    # # gridshape = "256x129"
+    # # gridshape = "360x181"
+    # # gridshape = "1440x721"
+    # gridshape = f"{nlon}x{nlat}"
+    # print("gridshape:", gridshape)
+
+    # start_year, end_year = 1959, 2022
+    # outfile = os.path.join(outdir, f"1959-2022-6h-{gridshape}-bilinear.zarr")
+    
     isfirst = True
     ds_list = list()
-    for year in range(1959, 2022):
-        # fname = os.path.join(outdir, f"{year}-6h-360x181.zarr")
-        fname = os.path.join(outdir, f"{year}-6h-256x128.zarr")
-        if os.path.exists(fname):
-            print("Read:", fname)
-            ds = xr.open_zarr(fname)
-            ds_list.append(ds)
-            if isfirst:
-                ds.to_zarr(outfile, mode="w")
-                isfirst = False
-            else:
-                ds.to_zarr(outfile, append_dim="time")
+    is_first = True
+    const_var_list = list()
 
-    # ds_concat = xr.concat(ds_list, dim="time")
-    # ds_concat = ds_concat.unify_chunks()
-    # print(ds_concat.chunks)
+    for fname in args.filenames:
+        print("Read:", fname)
+        ds = xr.open_zarr(fname)
+        ds_list.append(ds)
+        if isfirst:
+            nlon = len(ds["longitude"])
+            nlat = len(ds["latitude"])
+            gridshape = f"{nlon}x{nlat}"
+            for var in ds.data_vars:
+                if len(ds[var].dims) < 3:
+                    const_var_list.append(var)
+            isfirst = False
+    
+    xa = xr.combine_by_coords(ds_list)
+    xa = xa.drop_vars(const_var_list)
 
-    # fname = os.path.join(outdir, f"1979-2022-6h-360x181.zarr")
-    # ds_concat.to_zarr(fname, mode="w")
-    # print(f"Saved: {fname}")
+    xb = ds_list[0][const_var_list]
+    xa = xa.merge(xb)
+    xa = xa.chunk({"time": args.chunk_time})
+    print(xa)
 
-    # fname = os.path.join(outdir, f"1979-2022-6h-360x181.zarr")
-    # for i, ds in enumerate(ds_list):
-    #     print()
-    #     if i == 0:
-    #         ds.to_zarr(fname, mode="w")
-    #     else:
-    #         ds.to_zarr(fname, append_dim="time")
+    outfile = args.outfile
+    if "%{gridshape}" in outfile:
+        outfile = outfile.replace("%{gridshape}", gridshape)
+
+    with ProgressBar():
+        print("outfile:", outfile)
+        xa.to_zarr(outfile, mode="w")
 
