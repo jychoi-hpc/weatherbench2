@@ -144,7 +144,11 @@ def main(argv):
     input_chunks["longitude"] = -1
     input_chunks["latitude"] = -1
 
-    if "prism" not in INPUT_PATH.value and "daymet" not in INPUT_PATH.value:
+    us_bounds = (24, 53, 235, 293.5)  # (lat_min, lat_max, lon_min, lon_max)
+    us_lat_min, _, us_lon_min, _ = us_bounds
+
+    # if "prism" not in INPUT_PATH.value and "daymet" not in INPUT_PATH.value:
+    if False:
         ## (2025/01) temporarily disable
         if LATITUDE_SPACING.value == "equiangular_with_poles":
             lat_start = -90
@@ -161,26 +165,53 @@ def main(argv):
         new_lat = np.linspace(lat_start, lat_stop, num=LATITUDE_NODES.value, endpoint=True)        
     else:
         ## prism, daymet
+        ## convert to ERA5 longitude 0-360
+        if (source_ds.longitude < 0).any():
+            source_ds = source_ds.assign_coords(longitude=(source_ds.longitude + 360) % 360)
+        
+        ## Filter variables
+        const_variables = ["geopotential_at_surface"]
+        prism_selected_variables = ["land_sea_mask", "prcp", "tmax", "tmin"]
+        era5_selected_variables = ["u_component_of_wind", "v_component_of_wind", "temperature", "specific_humidity", "geopotential", "sea_surface_temperature", "geopotential_at_surface"]
+        era5_selected_levels = [500, 850]
+
+        data_variables = list(source_ds.data_vars)
+        if "prism" in INPUT_PATH.value or "daymet" in INPUT_PATH.value:
+            selected_variables = list(set(data_variables) & set(prism_selected_variables))
+        else:
+            selected_variables = list(set(data_variables) & set(era5_selected_variables))
+        source_ds = source_ds[selected_variables]
+
+        ## Filter levels
+        if "level" in source_ds.coords:
+            source_ds = source_ds.sel(level=era5_selected_levels)
+
+        ## Filter hours
+        # source_ds = source_ds.sel(time=source_ds.time.dt.hour == 0)
+        # source_ds = source_ds.resample(time="1D").mean() ## slow
+        # source_ds = source_ds.groupby(source_ds.time.dt.floor("D")).mean() ## time var changes
+        hourly = (source_ds.time[1] - source_ds.time[0]).item() / 3600 / 1e9
+        assert hourly.is_integer()
+        hourly = int(hourly)
+        if hourly < 24:
+            samples_per_day = 24 // hourly
+            source_ds = source_ds.coarsen(time=samples_per_day).mean()
+            source_ds["time"] = source_ds.time.dt.floor("D")
+
         old_lon = source_ds.coords["longitude"].data
         old_lat = source_ds.coords["latitude"].data
 
         regrid_scale = REGRIDDING_SCALE.value
-        lon_start = old_lon[0]
+        lon_start = us_lon_min
         lon_interval = regrid_scale * 2.5 / 60  # 2.5 minutes in degrees
-        lon_n = len(old_lon)
-        m = lon_n // 4 if (lon_n // 4) % 2 == 0 else lon_n // 4 - 1
-        lon_n = m * 4 // regrid_scale
-        lon_end = lon_start + lon_interval * lon_n
-        new_lon = np.linspace(lon_start, lon_end, lon_n, endpoint=False)
-        assert np.isclose(new_lon[1] - new_lon[0], lon_interval)
+        new_lon = lon_start + lon_interval * np.arange(LONGITUDE_NODES.value)
 
-        lat_start = old_lat[0]
+        lat_start = us_lat_min
         lat_interval = regrid_scale * 2.5 / 60  # 2.5 minutes in degrees
-        lat_n = len(old_lat)
-        m = lat_n // 4 if (lat_n // 4) % 2 == 0 else lat_n // 4 - 1
-        lat_n = m * 4 // regrid_scale
-        lat_end = lat_start + lat_interval * lat_n
-        new_lat = np.linspace(lat_start, lat_end, lat_n + 1, endpoint=True)
+        new_lat = lat_start + lat_interval * np.arange(LATITUDE_NODES.value)
+
+        print("lon start:", lon_start)
+        print("lat start:", lat_start)
         print("interval:", lon_interval * 60, lat_interval * 60)
         print("gridshape:", f"{len(new_lon)}x{len(new_lat)}")
 
@@ -229,7 +260,7 @@ def main(argv):
         for da in chunked_ds.data_vars.values()
     )
     print(f"Total number of chunks across all variables: {total_chunks}")    
-
+    
     with ProgressBar():
         with beam.Pipeline(runner=RUNNER.value, argv=argv) as root:
             _ = (
