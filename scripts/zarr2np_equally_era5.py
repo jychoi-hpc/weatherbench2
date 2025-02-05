@@ -878,12 +878,14 @@ def zarr2nc_wb(
     da2np(climatology_std)
     np.savez(os.path.join(save_dir, "normalize_std_wb.npz"), **climatology_std)
 
+
 def mpihello():
     comm = MPI.COMM_WORLD
     size = comm.Get_size()
     rank = comm.Get_rank()
     processor_name = MPI.Get_processor_name()
     return (rank, size, processor_name)
+
 
 @click.command()
 @click.option("--source_file", type=str)
@@ -950,19 +952,24 @@ def main(
     global CONSTANT_VARS, EXTRA_VARS, SINGLE_LEVEL_VARS, PRESSURE_LEVEL_VARS, DEFAULT_PRESSURE_LEVELS
 
     ## handle for prism, daymet
-    if (("prism" in source_file) or ("daymet" in source_file)) and ("era" not in source_file):
-        CONSTANT_VARS = ["land_sea_mask", "latitude",]
+    if (("prism" in source_file) or ("daymet" in source_file)) and (
+        "era" not in source_file
+    ):
+        CONSTANT_VARS = [
+            "land_sea_mask",
+            "latitude",
+        ]
         SINGLE_LEVEL_VARS = list(xa.data_vars)
         SINGLE_LEVEL_VARS.remove("land_sea_mask")
         PRESSURE_LEVEL_VARS = list()
         print("CONSTANT_VARS:", CONSTANT_VARS)
         print("SINGLE_LEVEL_VARS:", SINGLE_LEVEL_VARS)
         xa = xa.assign_coords(level=("level", DEFAULT_PRESSURE_LEVELS))
-    
+
     elif "era5-daymet" in source_file:
         DEFAULT_PRESSURE_LEVELS = [500, 850]
         CONSTANT_VARS = ["land_sea_mask", "latitude", "orography"]
-        SINGLE_LEVEL_VARS = ["prcp"]
+        SINGLE_LEVEL_VARS = ["prcp", "2m_temperature"]
         PRESSURE_LEVEL_VARS = [
             "geopotential",
             "u_component_of_wind",
@@ -981,14 +988,14 @@ def main(
         xa = xa.isel(longitude=slice(0, nlon - 1))
     if nlat % 2 == 1:
         xa = xa.isel(latitude=slice(0, nlat - 1))
-    
+
     ## lat is revered in 1959-2022-6h-1440x721.zarr
     if xa.longitude[0] > xa.longitude[1]:
         xa = xa.isel(longitude=slice(None, None, -1))
     if xa.latitude[0] > xa.latitude[1]:
         xa = xa.isel(latitude=slice(None, None, -1))
 
-    xa = xa.transpose("time", "level", "longitude", "latitude")    
+    xa = xa.transpose("time", "level", "longitude", "latitude")
 
     if "orography" not in xa:
         if "geopotential_at_surface" in xa:
@@ -1011,14 +1018,10 @@ def main(
         )
     if "%{deg}" in save_dir:
         deg = np.diff(xa.longitude.data)[0]
-        save_dir = save_dir.replace(
-            "%{deg}", f"{deg:.01f}"
-        )
+        save_dir = save_dir.replace("%{deg}", f"{deg:.01f}")
     if "%{arcmin}" in save_dir:
         arcmin = np.diff(xa.longitude.data)[0] * 60
-        save_dir = save_dir.replace(
-            "%{arcmin}", f"{arcmin:.01f}"
-        )
+        save_dir = save_dir.replace("%{arcmin}", f"{arcmin:.01f}")
     os.makedirs(save_dir, exist_ok=True)
     print("save_dir:", save_dir)
 
@@ -1037,7 +1040,7 @@ def main(
         comm = MPI.COMM_WORLD
         size = comm.Get_size()
         rank = comm.Get_rank()
-        print ("#1: MPI rank, size:", rank, size)
+        print("#1: MPI rank, size:", rank, size)
         comm.Barrier()
 
     with pool as executor:
@@ -1045,20 +1048,20 @@ def main(
             comm = MPI.COMM_WORLD
             size = comm.Get_size()
             rank = comm.Get_rank()
-            print ("#2: MPI rank, size:", rank, size)
+            print("#2: MPI rank, size:", rank, size)
 
             future_list = list()
             for i in range(size):
                 f = executor.submit(mpihello)
                 future_list.append(f)
-            
+
             for f in future_list:
                 print("MPI ready:", f.result())
-                
+
         # Only master enters this block
         if (executor is not None) or (parallel == "serial"):
             if parallel == "mpi":
-                print ("#3: Master?", rank, size)
+                print("#3: Master?", rank, size)
 
             print(">>> main")
             kw = {
