@@ -193,6 +193,8 @@ def main(argv):
             "sea_surface_temperature",
             "geopotential_at_surface",
             "2m_temperature",
+            "total_precipitation",
+            "total_precipitation_24hr",
         ]
         era5_selected_levels = [500, 850]
 
@@ -211,6 +213,18 @@ def main(argv):
         if "level" in source_ds.coords:
             source_ds = source_ds.sel(level=era5_selected_levels)
 
+        if "total_precipitation_24hr" in source_ds:
+            assert "total_precipitation" not in source_ds
+            source_ds = source_ds.rename(
+                {"total_precipitation_24hr": "total_precipitation"}
+            )
+
+        ## handle nan values in sea_surface_temperature
+        if "sea_surface_temperature" in source_ds:
+            source_ds["sea_surface_temperature"] = source_ds[
+                "sea_surface_temperature"
+            ].combine_first(source_ds["2m_temperature"])
+
         ## Filter hours
         # source_ds = source_ds.sel(time=source_ds.time.dt.hour == 0)
         # source_ds = source_ds.resample(time="1D").mean() ## slow
@@ -222,11 +236,6 @@ def main(argv):
             samples_per_day = 24 // hourly
             source_ds = source_ds.coarsen(time=samples_per_day).mean()
             source_ds["time"] = source_ds.time.dt.floor("D")
-
-        if "sea_surface_temperature" in source_ds:
-            source_ds["sea_surface_temperature"] = source_ds[
-                "sea_surface_temperature"
-            ].combine_first(source_ds["2m_temperature"])
 
         old_lon = source_ds.coords["longitude"].data
         old_lat = source_ds.coords["latitude"].data
@@ -249,11 +258,12 @@ def main(argv):
     print("OUTPUT_CHUNKS:", repr(output_chunks))
 
     output_path = OUTPUT_PATH.value
-    if "%{gridshape}" in output_path:
+    if "%{grid_shape}" in output_path:
         output_path = output_path.replace(
-            "%{gridshape}", f"{len(new_lon)}x{len(new_lat)}"
+            "%{grid_shape}", f"{len(new_lon)}x{len(new_lat)}"
         )
-        print("output_path:", output_path)
+
+    print("output_path:", output_path)
     if os.path.exists(output_path):
         print("Skip:", output_path)
         return

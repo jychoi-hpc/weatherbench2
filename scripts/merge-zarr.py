@@ -3,10 +3,42 @@ import os
 from dask.diagnostics import ProgressBar
 import argparse
 
+def macro_replace(outfile, xa):
+    if "%{grid_shape}" in outfile:
+        nlon = len(xa["longitude"])
+        nlat = len(xa["latitude"])
+        grid_shape = f"{nlon}x{nlat}"
+
+        outfile = outfile.replace("%{grid_shape}", grid_shape)
+
+    if "%{year_range}" in outfile:
+        year0, year1 = xa.time.min().dt.year.item(), xa.time.max().dt.year.item()
+        if year0 == year1:
+            year_range = f"{year0}"
+        else:
+            year_range = f"{year0}-{year1}"
+
+        outfile = outfile.replace("%{year_range}", year_range)
+
+    if "%{yearmon_range}" in outfile:
+        year0, year1 = xa.time.min().dt.year.item(), xa.time.max().dt.year.item()
+        mon0, mon1 = xa.time.min().dt.month.item(), xa.time.max().dt.month.item()
+        yearmon_range = f"{year0}{mon0}-{year1}{mon1}"
+
+        if (year0 == year1) and (mon0 == mon1):
+            yearmon_range = f"{year0}{mon0}"
+        else:
+            yearmon_range = f"{year0}{mon0}-{year1}{mon1}"
+
+        outfile = outfile.replace("%{yearmon_range}", yearmon_range)
+
+    return outfile
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("filenames", nargs='+', help="list of files")
-    parser.add_argument("--outfile", help="outfile", default="output-%{gridshape}.zarr")
+    parser.add_argument("--outfile", help="outfile", default="output-%{grid_shape}.zarr")
     parser.add_argument("--chunk_time", type=int, default=100)
     # parser.add_argument("nlon", type=int, help="longitude")
     # parser.add_argument("--use_month", action='store_true', help="use_month")
@@ -53,13 +85,8 @@ if __name__ == "__main__":
     xa = xa.chunk({"time": args.chunk_time})
     print(xa)
 
-    outfile = args.outfile
-    if "%{gridshape}" in outfile:
-        nlon = len(xa["longitude"])
-        nlat = len(xa["latitude"])
-        gridshape = f"{nlon}x{nlat}"
-
-        outfile = outfile.replace("%{gridshape}", gridshape)
+    outfile = macro_replace(args.outfile)
+    print("output_path:", outfile)
 
     with ProgressBar():
         for var in xa:

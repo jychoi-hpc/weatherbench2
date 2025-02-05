@@ -1012,9 +1012,9 @@ def main(
     xa["days_of_year"] = (("time"), doy)
     xa["time_of_day"] = (("time"), tod)
 
-    if "%{gridshape}" in save_dir:
+    if "%{grid_shape}" in save_dir:
         save_dir = save_dir.replace(
-            "%{gridshape}", f"{len(xa.longitude)}x{len(xa.latitude)}"
+            "%{grid_shape}", f"{len(xa.longitude)}x{len(xa.latitude)}"
         )
     if "%{deg}" in save_dir:
         deg = np.diff(xa.longitude.data)[0]
