@@ -13,33 +13,43 @@ echo "MONTH: $MONTH"
 
 # time python -u ./scripts/regrid.py \
 #   --input_path=datasets/prism/prism_1981-2020-1d-1405x621.zarr \
-#   --output_path=datasets/regrid/prism_$YEAR-%{grid_shape}-bilinear.zarr \
+#   --output_path=datasets/regrid/prism_%{yearmon_range}-%{grid_shape}-bilinear.zarr \
 #   --output_chunks="time=100" \
-#   --scale=4 --longitude_nodes=360 --latitude_nodes=180 \
-#   --latitude_spacing=equiangular_without_poles \
-#   --regridding_method=bilinear \
-#   --runner=DirectRunner \
-#   --year=$YEAR
-
-# time python -u ./scripts/regrid.py \
-#   --input_path=datasets/daymet/daymet_1980-2023-1d-1405x697.zarr \
-#   --output_path=datasets/regrid/daymet_$YEAR-%{grid_shape}-bilinear.zarr \
-#   --output_chunks="time=100" \
-#   --scale=4 --longitude_nodes=360 --latitude_nodes=180 \
+#   --scale=1 --longitude_nodes=1440 --latitude_nodes=720 \
 #   --latitude_spacing=equiangular_without_poles \
 #   --regridding_method=bilinear \
 #   --runner=DirectRunner \
 #   --year=$YEAR
 
 time python -u ./scripts/regrid.py \
-  --input_path=datasets/era5/1959-2022-6h-1440x721.zarr \
-  --output_path=datasets/regrid/era5_$YEAR-$MONTH-%{grid_shape}-bilinear.zarr \
+  --input_path=datasets/daymet/daymet_1980-2023-1d-1405x697.zarr \
+  --output_path=datasets/regrid/daymet_%{yearmon_range}-%{grid_shape}-bilinear.zarr \
   --output_chunks="time=100" \
-  --scale=4 --longitude_nodes=360 --latitude_nodes=180 \
-  --latitude_spacing=equiangular_with_poles \
+  --scale=1 --longitude_nodes=1440 --latitude_nodes=720 \
+  --latitude_spacing=equiangular_without_poles \
   --regridding_method=bilinear \
   --runner=DirectRunner \
-  --year=$YEAR --month=$MONTH
+  --year=$YEAR
+
+# time python -u ./scripts/regrid.py \
+#   --input_path=datasets/era5/1959-2022-6h-1440x721.zarr \
+#   --output_path=datasets/regrid/era5_%{yearmon_range}-%{grid_shape}-bilinear.zarr \
+#   --output_chunks="time=100" \
+#   --scale=4 --longitude_nodes=360 --latitude_nodes=180 \
+#   --latitude_spacing=equiangular_with_poles \
+#   --regridding_method=bilinear \
+#   --runner=DirectRunner \
+#   --year=$YEAR --month=$MONTH
+
+# time python -u ./scripts/regrid.py \
+#   --input_path=datasets/era5/1959-2022-6h-1440x721.zarr \
+#   --output_path=datasets/regrid/era5_%{yearmon_range}-%{grid_shape}-bilinear.zarr \
+#   --output_chunks="time=100" \
+#   --scale=1 --longitude_nodes=1440 --latitude_nodes=720 \
+#   --latitude_spacing=equiangular_with_poles \
+#   --regridding_method=bilinear \
+#   --runner=DirectRunner \
+#   --year=$YEAR --month=$MONTH
 
 # time python -u ./scripts/regrid.py \
 #   --input_path=datasets/era5/1959-2022-1h-1440x721.zarr \

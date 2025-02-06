@@ -1,7 +1,7 @@
 import numpy as np
 import argparse
 
-def check_npz_for_nans(file_path, fast=False):
+def check_npz_for_nans(file_path, fast=False, verbose=True):
     """Check if there are any NaNs in the variables of a .npz file."""
     # Load the .npz file
     print(file_path)
@@ -17,7 +17,8 @@ def check_npz_for_nans(file_path, fast=False):
     # Iterate over variables
     for var_name in data.files:
         variable = data[var_name]
-        # print(f"{var_name}:", variable.shape)
+        if verbose:
+            print(f"{var_name}:", variable.shape)
         
         # Check for NaN values
         if np.isnan(variable).any():
@@ -31,7 +32,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Check for NaNs in an NPZ file")
     parser.add_argument("file", type=str, help="Path to the .npz file")
     parser.add_argument("--fast", action='store_true', help="fast check")
+    parser.add_argument("--verbose", action='store_true', help="verbose")
     args = parser.parse_args()
 
     # Call the function to check the file
-    check_npz_for_nans(args.file, args.fast)
+    check_npz_for_nans(args.file, args.fast, args.verbose)

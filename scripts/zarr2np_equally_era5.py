@@ -122,6 +122,9 @@ def da2np(np_vars):
         # else:
         #     print(k, np_vars[k])
 
+    ## For ClimaX. Typo?
+    np_vars["lattitude"] = np_vars["latitude"]
+
 
 def get_sharded_time_range(
     year,
@@ -294,7 +297,11 @@ def zarr2nc_normalize(
             xdata = xa[var]
             x = xdata.data
             if var == "latitude":
-                x = np.repeat(x[np.newaxis, :], len(xa["longitude"]), axis=0)
+                var_name = list(xa.data_vars)[0]
+                if xa[var_name].dims[-1] == "longitude":
+                    x = np.repeat(x[:, np.newaxis], len(xa["longitude"]), axis=1)
+                else:
+                    x = np.repeat(x[np.newaxis, :], len(xa["longitude"]), axis=0)
             normalize_mean[var] = [x.mean()]
             normalize_std[var] = [x.std()]
 
@@ -416,7 +423,11 @@ def zarr2nc_climatology(
         xdata = xa[var]
         x = xdata.data
         if var == "latitude":
-            x = np.repeat(x[np.newaxis, :], len(xa["longitude"]), axis=0)
+            var_name = list(xa.data_vars)[0]
+            if xa[var_name].dims[-1] == "longitude":
+                x = np.repeat(x[:, np.newaxis], len(xa["longitude"]), axis=1)
+            else:
+                x = np.repeat(x[np.newaxis, :], len(xa["longitude"]), axis=0)
         x = np.expand_dims(x, axis=0)
         climatology[var] = x
 
@@ -595,7 +606,15 @@ def zarr2nc_check(
                     xdata = xa[var]
                     x = xdata.data
                     if var == "latitude":
-                        x = np.repeat(x[np.newaxis, :], len(xa["longitude"]), axis=0)
+                        var_name = list(xa.data_vars)[0]
+                        if xa[var_name].dims[-1] == "longitude":
+                            x = np.repeat(
+                                x[:, np.newaxis], len(xa["longitude"]), axis=1
+                            )
+                        else:
+                            x = np.repeat(
+                                x[np.newaxis, :], len(xa["longitude"]), axis=0
+                            )
                         x = np.repeat(
                             x[np.newaxis, :, :], total_num_steps_per_shard, axis=0
                         )
@@ -689,7 +708,11 @@ def zarr2nc(
                 xdata = xa[var]
                 x = xdata.data
                 if var == "latitude":
-                    x = np.repeat(x[np.newaxis, :], len(xa["longitude"]), axis=0)
+                    var_name = list(xa.data_vars)[0]
+                    if xa[var_name].dims[-1] == "longitude":
+                        x = np.repeat(x[:, np.newaxis], len(xa["longitude"]), axis=1)
+                    else:
+                        x = np.repeat(x[np.newaxis, :], len(xa["longitude"]), axis=0)
                     x = np.repeat(
                         x[np.newaxis, :, :], total_num_steps_per_shard, axis=0
                     )
@@ -825,7 +848,11 @@ def zarr2nc_wb(
         xdata = ds[var]
         x = xdata.data
         if var == "latitude":
-            x = np.repeat(x[np.newaxis, :], len(ds["longitude"]), axis=0)
+            var_name = list(ds.data_vars)[0]
+            if ds[var_name].dims[-1] == "longitude":
+                x = np.repeat(x[:, np.newaxis], len(ds["longitude"]), axis=1)
+            else:
+                x = np.repeat(x[np.newaxis, :], len(ds["longitude"]), axis=0)
             x = np.tile(x, [len(ds["hour"]), len(ds["dayofyear"]), 1, 1])
         if var in ["land_sea_mask", "orography"]:
             x = np.tile(x, [len(ds["hour"]), len(ds["dayofyear"]), 1, 1])
@@ -855,7 +882,11 @@ def zarr2nc_wb(
         xdata = ds[var]
         x = xdata.data
         if var == "latitude":
-            x = np.repeat(x[np.newaxis, :], len(ds["longitude"]), axis=0)
+            var_name = list(ds.data_vars)[0]
+            if ds[var_name].dims[-1] == "longitude":
+                x = np.repeat(x[:, np.newaxis], len(ds["longitude"]), axis=1)
+            else:
+                x = np.repeat(x[np.newaxis, :], len(ds["longitude"]), axis=0)
             x = np.tile(x, [len(ds["hour"]), len(ds["dayofyear"]), 1, 1])
         if var in ["land_sea_mask", "orography"]:
             x = np.tile(x, [len(ds["hour"]), len(ds["dayofyear"]), 1, 1])
@@ -908,6 +939,7 @@ def mpihello():
 @click.option("--hrs_each_step", type=int, default=6)
 @click.option("--extra_steps", type=int, default=40)
 @click.option("--daysofyear", type=int, default=366)
+@click.option("--latlon", is_flag=True, default=True)
 def main(
     source_file,
     climatology_file,
@@ -924,6 +956,7 @@ def main(
     hrs_each_step,
     extra_steps,
     daysofyear,
+    latlon,
 ):
 
     assert (
@@ -966,10 +999,15 @@ def main(
         print("SINGLE_LEVEL_VARS:", SINGLE_LEVEL_VARS)
         xa = xa.assign_coords(level=("level", DEFAULT_PRESSURE_LEVELS))
 
-    elif "era5-daymet" in source_file:
+    elif ("era5-daymet" in source_file) or ("era5-prism" in source_file):
         DEFAULT_PRESSURE_LEVELS = [500, 850]
         CONSTANT_VARS = ["land_sea_mask", "latitude", "orography"]
-        SINGLE_LEVEL_VARS = ["prcp", "2m_temperature"]
+        SINGLE_LEVEL_VARS = [
+            "prcp",
+            "2m_temperature",
+            "sea_surface_temperature",
+            "total_precipitation",
+        ]
         PRESSURE_LEVEL_VARS = [
             "geopotential",
             "u_component_of_wind",
@@ -995,7 +1033,10 @@ def main(
     if xa.latitude[0] > xa.latitude[1]:
         xa = xa.isel(latitude=slice(None, None, -1))
 
-    xa = xa.transpose("time", "level", "longitude", "latitude")
+    if latlon:
+        xa = xa.transpose("time", "level", "latitude", "longitude")
+    else:
+        xa = xa.transpose("time", "level", "longitude", "latitude")
 
     if "orography" not in xa:
         if "geopotential_at_surface" in xa:

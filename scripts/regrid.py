@@ -55,6 +55,37 @@ from dask.diagnostics import ProgressBar
 import xarray as xr
 from filelock import FileLock, SoftFileLock, Timeout
 
+def macro_replace(outfile, xa):
+    if "%{grid_shape}" in outfile:
+        nlon = len(xa["longitude"])
+        nlat = len(xa["latitude"])
+        grid_shape = f"{nlon}x{nlat}"
+
+        outfile = outfile.replace("%{grid_shape}", grid_shape)
+
+    if "%{year_range}" in outfile:
+        year0, year1 = xa.time.min().dt.year.item(), xa.time.max().dt.year.item()
+        if year0 == year1:
+            year_range = f"{year0}"
+        else:
+            year_range = f"{year0}-{year1+1}"
+
+        outfile = outfile.replace("%{year_range}", year_range)
+
+    if "%{yearmon_range}" in outfile:
+        year0, year1 = xa.time.min().dt.year.item(), xa.time.max().dt.year.item()
+        mon0, mon1 = xa.time.min().dt.month.item(), xa.time.max().dt.month.item()
+        yearmon_range = f"{year0}{mon0}-{year1}{mon1}"
+
+        if (year0 == year1) and (mon0 == mon1):
+            yearmon_range = f"{year0}{mon0:02d}"
+        else:
+            yearmon_range = f"{year0}{mon0:02d}-{year1+1}{(mon1+1)%12:02d}"
+
+        outfile = outfile.replace("%{yearmon_range}", yearmon_range)
+
+    return outfile
+
 INPUT_PATH = flags.DEFINE_string("input_path", None, help="zarr inputs")
 OUTPUT_PATH = flags.DEFINE_string("output_path", None, help="zarr outputs")
 OUTPUT_CHUNKS = flag_utils.DEFINE_chunks(
@@ -263,6 +294,8 @@ def main(argv):
             "%{grid_shape}", f"{len(new_lon)}x{len(new_lat)}"
         )
 
+    output_path = macro_replace(output_path, source_ds)
+    
     print("output_path:", output_path)
     if os.path.exists(output_path):
         print("Skip:", output_path)
