@@ -157,6 +157,11 @@ class ProgressDoFn(beam.DoFn):
 
 
 def main(argv):
+    # ds = xr.open_dataset("datasets/orography/GTOPO_DEM_30s.nc")
+    # ds = ds.rename({"lat": "latitude", "lon": "longitude", "z": "orography"})
+    # ds["orography"] = ds["orography"].astype(np.float32)
+    # ds.to_zarr("datasets/orography/orography-43200x21600.zarr", mode="w")
+
     source_ds, input_chunks = xarray_beam.open_zarr(INPUT_PATH.value)
     if YEAR.value is not None:
         source_ds = source_ds.sel(
@@ -187,8 +192,13 @@ def main(argv):
     us_lat_min, _, us_lon_min, _ = us_bounds
 
     # if "prism" not in INPUT_PATH.value and "daymet" not in INPUT_PATH.value:
-    if False:
-        ## (2025/01) temporarily disable
+    if REGRIDDING_SCALE.value is None:
+        ## orography
+        if (source_ds.longitude < 0).any():
+            source_ds = source_ds.assign_coords(
+                longitude=(source_ds.longitude + 360) % 360
+            )
+
         if LATITUDE_SPACING.value == "equiangular_with_poles":
             lat_start = -90
             lat_stop = 90
@@ -197,6 +207,7 @@ def main(argv):
             lat_start = -90 + 0.5 * 180 / LATITUDE_NODES.value
             lat_stop = 90 - 0.5 * 180 / LATITUDE_NODES.value
 
+        source_ds = source_ds.sortby(["longitude", "latitude"])
         old_lon = source_ds.coords["longitude"].data
         old_lat = source_ds.coords["latitude"].data
 
@@ -213,7 +224,7 @@ def main(argv):
             )
 
         ## Filter variables
-        const_variables = ["geopotential_at_surface"]
+        const_variables = ["geopotential_at_surface", "orography"]
         prism_selected_variables = ["land_sea_mask", "prcp", "tmax", "tmin"]
         era5_selected_variables = [
             "u_component_of_wind",
@@ -229,15 +240,16 @@ def main(argv):
         ]
         era5_selected_levels = [500, 850]
 
-        data_variables = list(source_ds.data_vars)
+        data_variables = set(list(source_ds.data_vars))
+        selected_const_variables = data_variables & set(const_variables)
         if "prism" in INPUT_PATH.value or "daymet" in INPUT_PATH.value:
-            selected_variables = list(
-                set(data_variables) & set(prism_selected_variables)
-            )
+            selected_var_variables = data_variables & set(prism_selected_variables)
+        elif "era5" in INPUT_PATH.value:
+            selected_var_variables = data_variables & set(era5_selected_variables)
         else:
-            selected_variables = list(
-                set(data_variables) & set(era5_selected_variables)
-            )
+            selected_var_variables = data_variables
+        selected_variables = selected_const_variables | selected_var_variables
+
         source_ds = source_ds[selected_variables]
 
         ## Filter levels
@@ -260,16 +272,18 @@ def main(argv):
         # source_ds = source_ds.sel(time=source_ds.time.dt.hour == 0)
         # source_ds = source_ds.resample(time="1D").mean() ## slow
         # source_ds = source_ds.groupby(source_ds.time.dt.floor("D")).mean() ## time var changes
-        hourly = (source_ds.time[1] - source_ds.time[0]).item() / 3600 / 1e9
-        assert hourly.is_integer()
-        hourly = int(hourly)
-        if hourly < 24:
-            samples_per_day = 24 // hourly
-            source_ds = source_ds.coarsen(time=samples_per_day).mean()
-            source_ds["time"] = source_ds.time.dt.floor("D")
+        if "time" in source_ds:
+            hourly = (source_ds.time[1] - source_ds.time[0]).item() / 3600 / 1e9
+            assert hourly.is_integer()
+            hourly = int(hourly)
+            if hourly < 24:
+                samples_per_day = 24 // hourly
+                source_ds = source_ds.coarsen(time=samples_per_day).mean()
+                source_ds["time"] = source_ds.time.dt.floor("D")
 
-        old_lon = source_ds.coords["longitude"].data
-        old_lat = source_ds.coords["latitude"].data
+        source_ds = source_ds.sortby(["longitude", "latitude"])
+        old_lon = np.sort(source_ds.coords["longitude"].data)
+        old_lat = np.sort(source_ds.coords["latitude"].data)
 
         regrid_scale = REGRIDDING_SCALE.value
         lon_start = us_lon_min
@@ -317,7 +331,7 @@ def main(argv):
         "conservative": regridding.ConservativeRegridder,
     }[REGRIDDING_METHOD.value]
 
-    source_grid = regridding.Grid.from_degrees(lon=old_lon, lat=np.sort(old_lat))
+    source_grid = regridding.Grid.from_degrees(lon=old_lon, lat=old_lat)
     target_grid = regridding.Grid.from_degrees(lon=new_lon, lat=new_lat)
     regridder = regridder_cls(source_grid, target_grid)
 

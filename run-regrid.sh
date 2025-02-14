@@ -11,25 +11,75 @@ MONTH=$2
 echo "YEAR: $YEAR"
 echo "MONTH: $MONTH"
 
+# for LON in 64 256 360 1440; do 
+#   LAT=$((LON/2+1))
+#   time python -u ./scripts/regrid.py \
+#     --input_path=datasets/contants/era5-constant_1440x721.zarr \
+#     --output_path=datasets/contants/era5-constant_%{grid_shape}-bilinear.zarr \
+#     --longitude_nodes=$LON --latitude_nodes=$LAT \
+#     --latitude_spacing=equiangular_with_poles \
+#     --regridding_method=bilinear \
+#     --runner=DirectRunner
+# done
+
+# for LON in 64 256 360 1440; do 
+#   LAT=$((LON/2+1))
+#   time python -u ./scripts/regrid.py \
+#     --input_path=datasets/contants/orography_43200x21600.zarr \
+#     --output_path=datasets/contants/orography_%{grid_shape}-bilinear.zarr \
+#     --longitude_nodes=$LON --latitude_nodes=$LAT \
+#     --latitude_spacing=equiangular_with_poles \
+#     --regridding_method=bilinear \
+#     --runner=DirectRunner
+# done
+
+for DSET in MPI-ESM AWI-ESM HAMMOZ CMCC TaiESM1; do
+for NLON in 64 256; do
+  NLAT=$((NLON/2 + 1))
+  time python -u ./scripts/regrid.py \
+    --input_path=datasets/cmip6/$DSET-1980-2015-360x180.zarr \
+    --output_path=datasets/regrid/CMIP6-${DSET}_%{year_range}-%{grid_shape}-bilinear.zarr \
+    --output_chunks="time=100" \
+    --longitude_nodes=$NLON --latitude_nodes=$NLAT \
+    --latitude_spacing=equiangular_with_poles \
+    --regridding_method=bilinear \
+    --runner=DirectRunner \
+    --year=$YEAR
+done
+done
+
+# for DSET in MPI-ESM AWI-ESM HAMMOZ CMCC TaiESM1; do
+# for NLON in 64 256; do
+#   NLAT=$((NLON/2 + 1))
+#   LNAME=$(echo $DSET | tr '[:upper:]' '[:lower:]')
+#   time python -u ./scripts/regrid.py \
+#     --input_path=datasets/cmip6/$DSET-1980-2015-360x180.zarr \
+#     --output_path=datasets/cmip6/cmip6-${LNAME}_%{year_range}-%{grid_shape}-bilinear.zarr \
+#     --output_chunks="time=100" \
+#     --longitude_nodes=$NLON --latitude_nodes=$NLAT \
+#     --latitude_spacing=equiangular_with_poles \
+#     --regridding_method=bilinear \
+#     --runner=DirectRunner
+# done
+# done
+
 # time python -u ./scripts/regrid.py \
-#   --input_path=datasets/prism/prism_1981-2020-1d-1405x621.zarr \
-#   --output_path=datasets/regrid/prism_%{yearmon_range}-%{grid_shape}-bilinear.zarr \
-#   --output_chunks="time=100" \
+#   --input_path=datasets/orography/orography_43200x21600.zarr \
+#   --output_path=datasets/orography/orography-usa_%{grid_shape}-bilinear.zarr \
 #   --scale=1 --longitude_nodes=1440 --latitude_nodes=720 \
 #   --latitude_spacing=equiangular_without_poles \
 #   --regridding_method=bilinear \
-#   --runner=DirectRunner \
-#   --year=$YEAR
+#   --runner=DirectRunner
 
-time python -u ./scripts/regrid.py \
-  --input_path=datasets/daymet/daymet_1980-2023-1d-1405x697.zarr \
-  --output_path=datasets/regrid/daymet_%{yearmon_range}-%{grid_shape}-bilinear.zarr \
-  --output_chunks="time=100" \
-  --scale=1 --longitude_nodes=1440 --latitude_nodes=720 \
-  --latitude_spacing=equiangular_without_poles \
-  --regridding_method=bilinear \
-  --runner=DirectRunner \
-  --year=$YEAR
+# time python -u ./scripts/regrid.py \
+#   --input_path=datasets/orography/orography_43200x21600.zarr \
+#   --output_path=datasets/orography/orography-usa_%{grid_shape}-bilinear.zarr \
+#   --scale=4 --longitude_nodes=360 --latitude_nodes=180 \
+#   --latitude_spacing=equiangular_without_poles \
+#   --regridding_method=bilinear \
+#   --runner=DirectRunner
+
+
 
 # time python -u ./scripts/regrid.py \
 #   --input_path=datasets/era5/1959-2022-6h-1440x721.zarr \
@@ -143,32 +193,40 @@ time python -u ./scripts/regrid.py \
 
 # for scale in 1 4; do
 # for YEAR in `seq 1980 2022`; do
-#   python -u ./scripts/regrid.py \
-#     --input_path=datasets/daymet/daymet_1980-2023-1d-1405x697.zarr \
-#     --output_path=datasets/regrid2/daymet_$YEAR-%{grid_shape}-bilinear.zarr \
-#     --output_chunks="time=10" \
-#     --scale=$scale \
-#     --latitude_spacing=equiangular_without_poles \
-#     --regridding_method=bilinear \
-#     --runner=DirectRunner \
-#     --year=$YEAR
+# time python -u ./scripts/regrid.py \
+#   --input_path=datasets/daymet/daymet_1980-2023-1d-1405x697.zarr \
+#   --output_path=datasets/regrid/daymet_%{yearmon_range}-%{grid_shape}-bilinear.zarr \
+#   --output_chunks="time=100" \
+#   --scale=$scale --longitude_nodes=$((1440/scale)) --latitude_nodes=$((720/scale)) \
+#   --latitude_spacing=equiangular_without_poles \
+#   --regridding_method=bilinear \
+#   --runner=DirectRunner \
+#   --year=$YEAR
 # done
 # done
-# python scripts/merge-zarr.py datasets/regrid2/daymet_*-1400x697-bilinear.zarr --outfile datasets/daymet/daymet_1980-2023-1d-%{grid_shape}-bilinear.zarr --chunk_time 10
-# python scripts/merge-zarr.py datasets/regrid2/daymet_*-350x175-bilinear.zarr --outfile datasets/daymet/daymet_1980-2023-1d-%{grid_shape}-bilinear.zarr --chunk_time 10
+# for gridshape in 1440x720 360x180; do
+#     python scripts/merge-zarr.py \
+#         datasets/regrid/daymet_*-$gridshape-bilinear.zarr \
+#         datasets/orography/orography-usa_$gridshape-bilinear.zarr \
+#         --outfile datasets/daymet/daymet_%{year_range}-1d-%{grid_shape}-bilinear.zarr
+# done
 
 # for scale in 1 4; do
 # for YEAR in `seq 1981 2019`; do
 #   python -u ./scripts/regrid.py \
 #     --input_path=datasets/prism/prism_1981-2020-1d-1405x621.zarr \
-#     --output_path=datasets/regrid2/prism_$YEAR-%{grid_shape}-bilinear.zarr \
-#     --output_chunks="time=10" \
-#     --scale=$scale \
+#     --output_path=datasets/regrid/prism_%{yearmon_range}-%{grid_shape}-bilinear.zarr \
+#     --output_chunks="time=100" \
+#     --scale=$scale --longitude_nodes=$((1440/scale)) --latitude_nodes=$((720/scale)) \
 #     --latitude_spacing=equiangular_without_poles \
 #     --regridding_method=bilinear \
 #     --runner=DirectRunner \
 #     --year=$YEAR
 # done
 # done
-# python scripts/merge-zarr.py datasets/regrid2/prism_*-1400x617-bilinear.zarr --outfile datasets/prism/prism_1981-2020-1d-%{grid_shape}-bilinear.zarr --chunk_time 10
-# python scripts/merge-zarr.py datasets/regrid2/prism_*-350x155-bilinear.zarr --outfile datasets/prism/prism_1981-2020-1d-%{grid_shape}-bilinear.zarr --chunk_time 10
+# for gridshape in 1440x720 360x180; do
+#     python scripts/merge-zarr.py \
+#         datasets/regrid/prism_*-$gridshape-bilinear.zarr \
+#         datasets/orography/orography-usa_$gridshape-bilinear.zarr \
+#         --outfile datasets/prism/prism_%{year_range}-1d-%{grid_shape}-bilinear.zarr
+# done

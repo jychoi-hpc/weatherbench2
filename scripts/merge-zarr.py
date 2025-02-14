@@ -44,6 +44,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--chunk_time", type=int, default=100)
     parser.add_argument("--join", help="join outer, inner, etc.", default="outer")
+    parser.add_argument("--mode", help="mode", default="w")
     args = parser.parse_args()
 
     # nlon = args.nlon
@@ -73,7 +74,7 @@ if __name__ == "__main__":
             if len(ds[var].dims) < 3:
                 const_var_list.add(var)
 
-    xa = xr.combine_by_coords(ds_list, join=args.join)
+    xa = xr.combine_by_coords(ds_list, join=args.join, combine_attrs="override")
     xa = xa.drop_vars(const_var_list)
 
     for var in const_var_list:
@@ -92,4 +93,4 @@ if __name__ == "__main__":
         for var in xa:
             del xa[var].encoding["chunks"]
         print("outfile:", outfile)
-        xa.to_zarr(outfile, mode="w")
+        xa.to_zarr(outfile, mode=args.mode)

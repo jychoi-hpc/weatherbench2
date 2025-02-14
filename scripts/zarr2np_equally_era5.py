@@ -181,6 +181,13 @@ def get_data(
     if level is not None:
         kw["level"] = level
 
+    actual_times = xa[var]["time"].values
+    expected_times = kw["time"].values
+    missing_times = set(expected_times) - set(actual_times)
+    xa[var].sel(time=slice("2012-02-28", "2012-03-01")).time
+    len(xa[var].sel(time="2012").time)
+
+    
     xdata = xa[var].sel(**kw)
     assert len(xdata.shape) < 5, ("too many dims", xdata.shape)
     x = xdata.data
@@ -991,9 +998,11 @@ def main(
         CONSTANT_VARS = [
             "land_sea_mask",
             "latitude",
+            "orography",
         ]
         SINGLE_LEVEL_VARS = list(xa.data_vars)
         SINGLE_LEVEL_VARS.remove("land_sea_mask")
+        SINGLE_LEVEL_VARS.remove("orography")
         PRESSURE_LEVEL_VARS = list()
         print("CONSTANT_VARS:", CONSTANT_VARS)
         print("SINGLE_LEVEL_VARS:", SINGLE_LEVEL_VARS)
@@ -1019,6 +1028,52 @@ def main(
         print("SINGLE_LEVEL_VARS:", SINGLE_LEVEL_VARS)
         print("PRESSURE_LEVEL_VARS:", PRESSURE_LEVEL_VARS)
         xa = xa.assign_coords(level=("level", DEFAULT_PRESSURE_LEVELS))
+    elif "CMIP6-CMCC" in source_file:
+        CONSTANT_VARS = ["land_sea_mask", "latitude", "orography"]
+        SINGLE_LEVEL_VARS = [
+        ]
+        PRESSURE_LEVEL_VARS = [
+            "geopotential",
+            "u_component_of_wind",
+            "v_component_of_wind",
+            "temperature",
+        ]
+        print("CONSTANT_VARS:", CONSTANT_VARS)
+        print("SINGLE_LEVEL_VARS:", SINGLE_LEVEL_VARS)
+        print("PRESSURE_LEVEL_VARS:", PRESSURE_LEVEL_VARS)
+    elif "CMIP6-TaiESM1" in source_file:
+        CONSTANT_VARS = ["land_sea_mask", "latitude", "orography"]
+        SINGLE_LEVEL_VARS = [
+            "2m_temperature",
+        ]
+        PRESSURE_LEVEL_VARS = [
+            "geopotential",
+            "u_component_of_wind",
+            "v_component_of_wind",
+            "temperature",
+            "specific_humidity",
+        ]
+        print("CONSTANT_VARS:", CONSTANT_VARS)
+        print("SINGLE_LEVEL_VARS:", SINGLE_LEVEL_VARS)
+        print("PRESSURE_LEVEL_VARS:", PRESSURE_LEVEL_VARS)
+    elif "CMIP6" in source_file:
+        CONSTANT_VARS = ["land_sea_mask", "latitude", "orography"]
+        SINGLE_LEVEL_VARS = [
+            "2m_temperature",
+            "10m_u_component_of_wind",
+            "10m_v_component_of_wind",
+        ]
+        PRESSURE_LEVEL_VARS = [
+            "geopotential",
+            "u_component_of_wind",
+            "v_component_of_wind",
+            "temperature",
+            "specific_humidity",
+        ]
+        print("CONSTANT_VARS:", CONSTANT_VARS)
+        print("SINGLE_LEVEL_VARS:", SINGLE_LEVEL_VARS)
+        print("PRESSURE_LEVEL_VARS:", PRESSURE_LEVEL_VARS)
+
 
     nlon = len(xa.longitude)
     nlat = len(xa.latitude)
@@ -1059,10 +1114,10 @@ def main(
         )
     if "%{deg}" in save_dir:
         deg = np.diff(xa.longitude.data)[0]
-        save_dir = save_dir.replace("%{deg}", f"{deg:.01f}")
+        save_dir = save_dir.replace("%{deg}", f"{deg}")
     if "%{arcmin}" in save_dir:
         arcmin = np.diff(xa.longitude.data)[0] * 60
-        save_dir = save_dir.replace("%{arcmin}", f"{arcmin:.01f}")
+        save_dir = save_dir.replace("%{arcmin}", f"{arcmin}")
     os.makedirs(save_dir, exist_ok=True)
     print("save_dir:", save_dir)
 
