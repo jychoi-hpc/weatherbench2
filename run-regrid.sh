@@ -11,6 +11,31 @@ MONTH=$2
 echo "YEAR: $YEAR"
 echo "MONTH: $MONTH"
 
+
+for UNIT in 15; do
+NLON=$((15*240/UNIT))
+NLAT=$((15*120/UNIT))
+echo time python -u ./scripts/regrid.py \
+  --input_path=datasets/era5/1959-2022-1h-1440x721.zarr \
+  --output_path=datasets/regrid/era5_%{yearmon_range}-%{grid_shape}-bilinear.zarr \
+  --output_chunks="time=100" \
+  --regridding_unit=$UNIT --longitude_nodes=$NLON --latitude_nodes=$NLAT --usa \
+  --latitude_spacing=equiangular_without_poles \
+  --regridding_method=bilinear \
+  --runner=DirectRunner \
+  --year=$YEAR --month=$MONTH
+done
+
+# for LON in 360 1440; do
+#   time python -u ./scripts/regrid.py \
+#     --input_path=datasets/contants/landcover_43200x21600.zarr \
+#     --output_path=datasets/contants/landcover-usa_%{grid_shape}-bilinear.zarr \
+#     --scale=$((1440/LON)) --longitude_nodes=$LON --latitude_nodes=$((LON/2)) \
+#     --latitude_spacing=equiangular_without_poles \
+#     --regridding_method=bilinear \
+#     --runner=DirectRunner
+# done
+
 # for LON in 64 256 360 1440; do 
 #   LAT=$((LON/2+1))
 #   time python -u ./scripts/regrid.py \
@@ -33,20 +58,20 @@ echo "MONTH: $MONTH"
 #     --runner=DirectRunner
 # done
 
-for DSET in MPI-ESM AWI-ESM HAMMOZ CMCC TaiESM1; do
-for NLON in 64 256; do
-  NLAT=$((NLON/2 + 1))
-  time python -u ./scripts/regrid.py \
-    --input_path=datasets/cmip6/$DSET-1980-2015-360x180.zarr \
-    --output_path=datasets/regrid/CMIP6-${DSET}_%{year_range}-%{grid_shape}-bilinear.zarr \
-    --output_chunks="time=100" \
-    --longitude_nodes=$NLON --latitude_nodes=$NLAT \
-    --latitude_spacing=equiangular_with_poles \
-    --regridding_method=bilinear \
-    --runner=DirectRunner \
-    --year=$YEAR
-done
-done
+# for DSET in MPI-ESM AWI-ESM HAMMOZ CMCC TaiESM1; do
+# for NLON in 64 256; do
+#   NLAT=$((NLON/2 + 1))
+#   time python -u ./scripts/regrid.py \
+#     --input_path=datasets/cmip6/$DSET-1980-2015-360x180.zarr \
+#     --output_path=datasets/regrid/CMIP6-${DSET}_%{year_range}-%{grid_shape}-bilinear.zarr \
+#     --output_chunks="time=100" \
+#     --longitude_nodes=$NLON --latitude_nodes=$NLAT \
+#     --latitude_spacing=equiangular_with_poles \
+#     --regridding_method=bilinear \
+#     --runner=DirectRunner \
+#     --year=$YEAR
+# done
+# done
 
 # for DSET in MPI-ESM AWI-ESM HAMMOZ CMCC TaiESM1; do
 # for NLON in 64 256; do

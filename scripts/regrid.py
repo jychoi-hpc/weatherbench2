@@ -54,6 +54,7 @@ from tqdm import tqdm
 from dask.diagnostics import ProgressBar
 import xarray as xr
 from filelock import FileLock, SoftFileLock, Timeout
+import time
 
 def macro_replace(outfile, xa):
     if "%{grid_shape}" in outfile:
@@ -97,7 +98,9 @@ LATITUDE_NODES = flags.DEFINE_integer(
 LONGITUDE_NODES = flags.DEFINE_integer(
     "longitude_nodes", None, help="number of desired longitude nodes"
 )
-REGRIDDING_SCALE = flags.DEFINE_integer("scale", None, help="regridding_scale")
+# REGRIDDING_SCALE = flags.DEFINE_float("scale", None, help="regridding_scale")
+REGRIDDING_UNIT = flags.DEFINE_float("regridding_unit", None, help="regridding unit in arcmin")
+REGRIDDING_USA_ONLY = flags.DEFINE_bool("usa", False, "usa")
 LATITUDE_SPACING = flags.DEFINE_enum(
     "latitude_spacing",
     "equiangular_with_poles",
@@ -162,19 +165,46 @@ def main(argv):
     # ds["orography"] = ds["orography"].astype(np.float32)
     # ds.to_zarr("datasets/orography/orography-43200x21600.zarr", mode="w")
 
+    t0 = time.time()
     source_ds, input_chunks = xarray_beam.open_zarr(INPUT_PATH.value)
     if YEAR.value is not None:
-        source_ds = source_ds.sel(
+        selected = source_ds.sel(
             time=slice(f"{YEAR.value}-01-01", f"{YEAR.value}-12-31")
         )
         if MONTH.value is not None:
-            source_ds = source_ds.sel(
+            selected = selected.sel(
                 time=slice(
                     f"{YEAR.value}-{MONTH.value:02d}", f"{YEAR.value}-{MONTH.value:02d}"
                 )
             )
+
+    print("elapsed:", time.time() - t0)
+    if True:
+        hourly = (source_ds.time[1] - source_ds.time[0]).item() / 3600 / 1e9
+        assert hourly.is_integer()
+        hourly = int(hourly)
+        nsamples = 24 // hourly 
+
+        if selected.time[0] > source_ds.time[0]:
+            extra = source_ds.sel(time=slice(selected.time[0] - np.timedelta64(24 - hourly, 'h'), selected.time[0] - 1))
+        else:
+            extra = source_ds.sel(time=slice(selected.time[0], selected.time[0] + np.timedelta64(24 - hourly, 'h') - 1))
+            extra = extra.assign_coords(time=extra.time - np.timedelta64(24 - hourly, 'h'))
+        selected_plus = xr.concat([extra[["sea_surface_temperature", "2m_temperature"]], selected[["sea_surface_temperature", "2m_temperature"]]], dim="time")
+
+        ## handle nan values in sea_surface_temperature
+        if "sea_surface_temperature" in selected_plus:
+            selected_plus["2m_temperature_combined"] = selected_plus[
+                "sea_surface_temperature"
+            ].combine_first(selected_plus["2m_temperature"])
+        
+        selected["2m_temperature_min"] = selected_plus["2m_temperature_combined"].rolling(time=nsamples, center=False).min().dropna("time")
+        selected["2m_temperature_max"] = selected_plus["2m_temperature_combined"].rolling(time=nsamples, center=False).max().dropna("time")
+        source_ds = selected
+
     print("source_ds:", source_ds)
     print("input_chunks:", input_chunks)
+    print("elapsed:", time.time() - t0)
 
     # Rename latitude/longitude names
     renames = {
@@ -188,11 +218,25 @@ def main(argv):
     input_chunks["longitude"] = -1
     input_chunks["latitude"] = -1
 
-    us_bounds = (24, 53, 235, 293.5)  # (lat_min, lat_max, lon_min, lon_max)
+    us_bounds = (24, 53, 235, 293.5)  # (lat_min, lat_max, lon_min, lon_max) or (125W, 66.5W)
     us_lat_min, _, us_lon_min, _ = us_bounds
 
-    # if "prism" not in INPUT_PATH.value and "daymet" not in INPUT_PATH.value:
-    if REGRIDDING_SCALE.value is None:
+    ## Common
+    if "total_precipitation_24hr" in source_ds:
+        assert "total_precipitation" not in source_ds
+        source_ds = source_ds.rename(
+            {"total_precipitation_24hr": "total_precipitation"}
+        )
+
+    ## handle nan values in sea_surface_temperature
+    if "sea_surface_temperature" in source_ds:
+        source_ds["2m_temperature_combined"] = source_ds[
+            "sea_surface_temperature"
+        ].combine_first(source_ds["2m_temperature"])
+
+    ## Global
+    print("elapsed:", time.time() - t0)
+    if REGRIDDING_USA_ONLY.value is not True:
         ## orography
         if (source_ds.longitude < 0).any():
             source_ds = source_ds.assign_coords(
@@ -216,6 +260,7 @@ def main(argv):
             lat_start, lat_stop, num=LATITUDE_NODES.value, endpoint=True
         )
     else:
+        ## USA region only
         ## prism, daymet
         ## convert to ERA5 longitude 0-360
         if (source_ds.longitude < 0).any():
@@ -236,9 +281,11 @@ def main(argv):
             "geopotential_at_surface",
             "2m_temperature",
             "total_precipitation",
-            "total_precipitation_24hr",
+            "2m_temperature_min",
+            "2m_temperature_max",
+            "volumetric_soil_water_layer_1",
         ]
-        era5_selected_levels = [500, 850]
+        era5_selected_levels = [200, 500, 850]
 
         data_variables = set(list(source_ds.data_vars))
         selected_const_variables = data_variables & set(const_variables)
@@ -256,42 +303,32 @@ def main(argv):
         if "level" in source_ds.coords:
             source_ds = source_ds.sel(level=era5_selected_levels)
 
-        if "total_precipitation_24hr" in source_ds:
-            assert "total_precipitation" not in source_ds
-            source_ds = source_ds.rename(
-                {"total_precipitation_24hr": "total_precipitation"}
-            )
-
-        ## handle nan values in sea_surface_temperature
-        if "sea_surface_temperature" in source_ds:
-            source_ds["sea_surface_temperature"] = source_ds[
-                "sea_surface_temperature"
-            ].combine_first(source_ds["2m_temperature"])
-
         ## Filter hours
         # source_ds = source_ds.sel(time=source_ds.time.dt.hour == 0)
         # source_ds = source_ds.resample(time="1D").mean() ## slow
         # source_ds = source_ds.groupby(source_ds.time.dt.floor("D")).mean() ## time var changes
         if "time" in source_ds:
+            ## Convert n-hourly (n<24) to daily
             hourly = (source_ds.time[1] - source_ds.time[0]).item() / 3600 / 1e9
             assert hourly.is_integer()
             hourly = int(hourly)
             if hourly < 24:
                 samples_per_day = 24 // hourly
-                source_ds = source_ds.coarsen(time=samples_per_day).mean()
-                source_ds["time"] = source_ds.time.dt.floor("D")
+                source_ds_1dy = source_ds.coarsen(time=samples_per_day).mean() ## fixed daily bins
+                source_ds_1dy["time"] = source_ds_1dy.time.dt.floor("D")
+                source_ds = source_ds_1dy
 
         source_ds = source_ds.sortby(["longitude", "latitude"])
         old_lon = np.sort(source_ds.coords["longitude"].data)
         old_lat = np.sort(source_ds.coords["latitude"].data)
 
-        regrid_scale = REGRIDDING_SCALE.value
+        regrid_unit = REGRIDDING_UNIT.value
         lon_start = us_lon_min
-        lon_interval = regrid_scale * 2.5 / 60  # 2.5 minutes in degrees
+        lon_interval = regrid_unit / 60  # arcmin to deg
         new_lon = lon_start + lon_interval * np.arange(LONGITUDE_NODES.value)
 
         lat_start = us_lat_min
-        lat_interval = regrid_scale * 2.5 / 60  # 2.5 minutes in degrees
+        lat_interval = regrid_unit / 60  # arcmin to deg
         new_lat = lat_start + lat_interval * np.arange(LATITUDE_NODES.value)
 
         print("lon start:", lon_start)
@@ -301,6 +338,7 @@ def main(argv):
 
     output_chunks = OUTPUT_CHUNKS.value
     print("OUTPUT_CHUNKS:", repr(output_chunks))
+    print("elapsed:", time.time() - t0)
 
     output_path = OUTPUT_PATH.value
     if "%{grid_shape}" in output_path:
@@ -375,7 +413,8 @@ def main(argv):
         # print("NULL?:", ds.isnull().any().compute())
 
     lock.release()
-
+    print("Done.")
+    print("elapsed:", time.time() - t0)
 
 if __name__ == "__main__":
     from dask.distributed import Client

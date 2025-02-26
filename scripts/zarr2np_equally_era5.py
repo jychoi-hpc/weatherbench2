@@ -999,10 +999,9 @@ def main(
             "land_sea_mask",
             "latitude",
             "orography",
+            "landcover",
         ]
-        SINGLE_LEVEL_VARS = list(xa.data_vars)
-        SINGLE_LEVEL_VARS.remove("land_sea_mask")
-        SINGLE_LEVEL_VARS.remove("orography")
+        SINGLE_LEVEL_VARS = list(set(xa.data_vars) - set(CONSTANT_VARS))
         PRESSURE_LEVEL_VARS = list()
         print("CONSTANT_VARS:", CONSTANT_VARS)
         print("SINGLE_LEVEL_VARS:", SINGLE_LEVEL_VARS)
@@ -1117,7 +1116,7 @@ def main(
         save_dir = save_dir.replace("%{deg}", f"{deg}")
     if "%{arcmin}" in save_dir:
         arcmin = np.diff(xa.longitude.data)[0] * 60
-        save_dir = save_dir.replace("%{arcmin}", f"{arcmin}")
+        save_dir = save_dir.replace("%{arcmin}", f"{arcmin:.1f}")
     os.makedirs(save_dir, exist_ok=True)
     print("save_dir:", save_dir)
 
