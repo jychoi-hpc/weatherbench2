@@ -56,6 +56,22 @@ import xarray as xr
 from filelock import FileLock, SoftFileLock, Timeout
 import time
 
+from datetime import datetime, timedelta
+
+
+def fix_invalid_date(date_str):
+    try:
+        return pd.to_datetime(date_str)
+    except ValueError:
+        # Split and check components
+        year, month, day = map(int, date_str.split("-"))
+        # Get the last valid day of the given month
+        last_valid_day = (datetime(year, month % 12 + 1, 1) - timedelta(days=1)).day
+        # Correct the day
+        corrected_day = min(day, last_valid_day)
+        return pd.to_datetime(f"{year}-{month:02d}-{corrected_day:02d}")
+
+
 def macro_replace(outfile, xa):
     if "%{grid_shape}" in outfile:
         nlon = len(xa["longitude"])
@@ -64,28 +80,40 @@ def macro_replace(outfile, xa):
 
         outfile = outfile.replace("%{grid_shape}", grid_shape)
 
-    if "%{year_range}" in outfile:
-        year0, year1 = xa.time.min().dt.year.item(), xa.time.max().dt.year.item()
-        if year0 == year1:
-            year_range = f"{year0}"
-        else:
-            year_range = f"{year0}-{year1+1}"
+    tmin = xa.time.min()
+    tmax = xa.time.max()
+    if "%{year}" in outfile:
+        timestr0 = tmin.dt.strftime("%Y").item()
+        outfile = outfile.replace("%{year}", f"{timestr0}")
 
-        outfile = outfile.replace("%{year_range}", year_range)
+    if "%{yearmon}" in outfile:
+        timestr0 = tmin.dt.strftime("%Y%m").item()
+        outfile = outfile.replace("%{yearmon}", f"{timestr0}")
+
+    if "%{yearmonday}" in outfile:
+        timestr0 = tmin.dt.strftime("%Y%m%d").item()
+        outfile = outfile.replace("%{yearmonday}", f"{timestr0}")
+
+    if "%{year_range}" in outfile:
+        timestr0 = tmin.dt.strftime("%Y").item()
+        timestr1 = (tmax + np.timedelta64(1, "Y")).dt.strftime("%Y").item()
+        outfile = outfile.replace("%{year_range}", f"{timestr0}-{timestr1}")
 
     if "%{yearmon_range}" in outfile:
-        year0, year1 = xa.time.min().dt.year.item(), xa.time.max().dt.year.item()
-        mon0, mon1 = xa.time.min().dt.month.item(), xa.time.max().dt.month.item()
-        yearmon_range = f"{year0}{mon0}-{year1}{mon1}"
+        timestr0 = tmin.dt.strftime("%Y%m").item()
+        timestr1 = (tmax + np.timedelta64(1, "M")).dt.strftime("%Y%m").item()
+        outfile = outfile.replace("%{yearmon_range}", f"{timestr0}-{timestr1}")
 
-        if (year0 == year1) and (mon0 == mon1):
-            yearmon_range = f"{year0}{mon0:02d}"
-        else:
-            yearmon_range = f"{year0}{mon0:02d}-{year1+1}{(mon1+1)%12:02d}"
-
-        outfile = outfile.replace("%{yearmon_range}", yearmon_range)
+    if "%{yearmonday_range}" in outfile:
+        timestr0 = tmin.dt.strftime("%Y%m%d").item()
+        nhourly = (xa.time[1] - xa.time[0]).item() / 3600 / 1e9
+        assert nhourly.is_integer()
+        nhourly = int(nhourly)
+        timestr1 = (tmax + np.timedelta64(nhourly, "h")).dt.strftime("%Y%m%d").item()
+        outfile = outfile.replace("%{yearmonday_range}", f"{timestr0}-{timestr1}")
 
     return outfile
+
 
 INPUT_PATH = flags.DEFINE_string("input_path", None, help="zarr inputs")
 OUTPUT_PATH = flags.DEFINE_string("output_path", None, help="zarr outputs")
@@ -99,7 +127,9 @@ LONGITUDE_NODES = flags.DEFINE_integer(
     "longitude_nodes", None, help="number of desired longitude nodes"
 )
 # REGRIDDING_SCALE = flags.DEFINE_float("scale", None, help="regridding_scale")
-REGRIDDING_UNIT = flags.DEFINE_float("regridding_unit", None, help="regridding unit in arcmin")
+REGRIDDING_UNIT = flags.DEFINE_float(
+    "regridding_unit", None, help="regridding unit in arcmin"
+)
 REGRIDDING_USA_ONLY = flags.DEFINE_bool("usa", False, "usa")
 LATITUDE_SPACING = flags.DEFINE_enum(
     "latitude_spacing",
@@ -127,6 +157,8 @@ NUM_THREADS = flags.DEFINE_integer(
 RUNNER = flags.DEFINE_string("runner", None, "beam.runners.Runner")
 YEAR = flags.DEFINE_integer("year", None, help="year")
 MONTH = flags.DEFINE_integer("month", None, help="month")
+DAY_BEGIN = flags.DEFINE_integer("day_begin", None, help="day begin")
+DAY_END = flags.DEFINE_integer("day_end", None, help="day end") ## inclusive
 FILLNA = flags.DEFINE_bool("fillna", False, "fillna")
 
 
@@ -168,38 +200,69 @@ def main(argv):
     t0 = time.time()
     source_ds, input_chunks = xarray_beam.open_zarr(INPUT_PATH.value)
     if YEAR.value is not None:
-        selected = source_ds.sel(
-            time=slice(f"{YEAR.value}-01-01", f"{YEAR.value}-12-31")
-        )
+        time0 = time1 = f"{YEAR.value}"
         if MONTH.value is not None:
-            selected = selected.sel(
-                time=slice(
-                    f"{YEAR.value}-{MONTH.value:02d}", f"{YEAR.value}-{MONTH.value:02d}"
-                )
-            )
+            time0 = time1 = f"{YEAR.value}-{MONTH.value:02d}"
+            if DAY_BEGIN.value is not None:
+                time0 = f"{YEAR.value}-{MONTH.value:02d}-{DAY_BEGIN.value:02d}"
+                time1 = f"{YEAR.value}-{MONTH.value:02d}-{DAY_END.value:02d}"
+                time0 = fix_invalid_date(time0)
+                time1 = fix_invalid_date(time1) + np.timedelta64(23, "h") ## inclusive
+    time_slice = slice(time0, time1)
+    selected = source_ds.sel(time=time_slice)
 
     print("elapsed:", time.time() - t0)
     if True:
-        hourly = (source_ds.time[1] - source_ds.time[0]).item() / 3600 / 1e9
-        assert hourly.is_integer()
-        hourly = int(hourly)
-        nsamples = 24 // hourly 
+        nhourly = (source_ds.time[1] - source_ds.time[0]).item() / 3600 / 1e9
+        assert nhourly.is_integer()
+        nhourly = int(nhourly)
+        nsamples = 24 // nhourly
 
         if selected.time[0] > source_ds.time[0]:
-            extra = source_ds.sel(time=slice(selected.time[0] - np.timedelta64(24 - hourly, 'h'), selected.time[0] - 1))
+            extra = source_ds.sel(
+                time=slice(
+                    selected.time[0] - np.timedelta64(24 - nhourly, "h"),
+                    selected.time[0] - 1,
+                )
+            )
         else:
-            extra = source_ds.sel(time=slice(selected.time[0], selected.time[0] + np.timedelta64(24 - hourly, 'h') - 1))
-            extra = extra.assign_coords(time=extra.time - np.timedelta64(24 - hourly, 'h'))
-        selected_plus = xr.concat([extra[["sea_surface_temperature", "2m_temperature"]], selected[["sea_surface_temperature", "2m_temperature"]]], dim="time")
+            extra = source_ds.sel(
+                time=slice(
+                    selected.time[0],
+                selected.time[0] + np.timedelta64(24 - nhourly, "h") - 1,
+                )
+            )
+            extra = extra.assign_coords(
+                time=extra.time - np.timedelta64(24 - nhourly, "h")
+            )
+        selected_plus = xr.concat(
+            [
+                extra[["sea_surface_temperature", "2m_temperature"]],
+                selected[["sea_surface_temperature", "2m_temperature"]],
+            ],
+            dim="time",
+        )
 
         ## handle nan values in sea_surface_temperature
         if "sea_surface_temperature" in selected_plus:
             selected_plus["2m_temperature_combined"] = selected_plus[
                 "sea_surface_temperature"
             ].combine_first(selected_plus["2m_temperature"])
-        
-        selected["2m_temperature_min"] = selected_plus["2m_temperature_combined"].rolling(time=nsamples, center=False).min().dropna("time")
-        selected["2m_temperature_max"] = selected_plus["2m_temperature_combined"].rolling(time=nsamples, center=False).max().dropna("time")
+
+        selected["2m_temperature_min"] = (
+            selected_plus["2m_temperature_combined"]
+            .rolling(time=nsamples, center=False)
+            .min()
+            .dropna("time")
+            .compute()
+        )
+        selected["2m_temperature_max"] = (
+            selected_plus["2m_temperature_combined"]
+            .rolling(time=nsamples, center=False)
+            .max()
+            .dropna("time")
+            .compute()
+        )
         source_ds = selected
 
     print("source_ds:", source_ds)
@@ -218,7 +281,12 @@ def main(argv):
     input_chunks["longitude"] = -1
     input_chunks["latitude"] = -1
 
-    us_bounds = (24, 53, 235, 293.5)  # (lat_min, lat_max, lon_min, lon_max) or (125W, 66.5W)
+    us_bounds = (
+        24,
+        53,
+        235,
+        293.5,
+    )  # (lat_min, lat_max, lon_min, lon_max) or (125W, 66.5W)
     us_lat_min, _, us_lon_min, _ = us_bounds
 
     ## Common
@@ -309,12 +377,14 @@ def main(argv):
         # source_ds = source_ds.groupby(source_ds.time.dt.floor("D")).mean() ## time var changes
         if "time" in source_ds:
             ## Convert n-hourly (n<24) to daily
-            hourly = (source_ds.time[1] - source_ds.time[0]).item() / 3600 / 1e9
-            assert hourly.is_integer()
-            hourly = int(hourly)
-            if hourly < 24:
-                samples_per_day = 24 // hourly
-                source_ds_1dy = source_ds.coarsen(time=samples_per_day).mean() ## fixed daily bins
+            nhourly = (source_ds.time[1] - source_ds.time[0]).item() / 3600 / 1e9
+            assert nhourly.is_integer()
+            nhourly = int(nhourly)
+            if nhourly < 24:
+                samples_per_day = 24 // nhourly
+                source_ds_1dy = source_ds.coarsen(
+                    time=samples_per_day
+                ).mean()  ## fixed daily bins
                 source_ds_1dy["time"] = source_ds_1dy.time.dt.floor("D")
                 source_ds = source_ds_1dy
 
@@ -347,7 +417,7 @@ def main(argv):
         )
 
     output_path = macro_replace(output_path, source_ds)
-    
+
     print("output_path:", output_path)
     if os.path.exists(output_path):
         print("Skip:", output_path)
@@ -415,6 +485,7 @@ def main(argv):
     lock.release()
     print("Done.")
     print("elapsed:", time.time() - t0)
+
 
 if __name__ == "__main__":
     from dask.distributed import Client

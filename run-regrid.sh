@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -A LRN036
+#SBATCH -A CSC623
 #SBATCH -J global
 #SBATCH -N 1
 #SBATCH -t 24:00:00
@@ -8,22 +8,28 @@ DATAROOT=/lustre/orion/lrn036/world-shared/jyc/frontier/weatherbench2
 
 YEAR=$1
 MONTH=$2
+DAY_BEGIN=$3
+DAY_END=$4
+TIME_OPTION=
+[ ! -z $YEAR ] && TIME_OPTION="--year=$YEAR"
+[ ! -z $MONTH ] && TIME_OPTION="$TIME_OPTION --month=$MONTH"
+[ ! -z $DAY_BEGIN ] && TIME_OPTION="$TIME_OPTION --day_begin=$DAY_BEGIN --day_end=$DAY_END"
 echo "YEAR: $YEAR"
 echo "MONTH: $MONTH"
+echo "DAYS: $DAY_BEGIN $DAY_END"
 
-
-for UNIT in 15; do
-NLON=$((15*240/UNIT))
-NLAT=$((15*120/UNIT))
-echo time python -u ./scripts/regrid.py \
-  --input_path=datasets/era5/1959-2022-1h-1440x721.zarr \
-  --output_path=datasets/regrid/era5_%{yearmon_range}-%{grid_shape}-bilinear.zarr \
-  --output_chunks="time=100" \
-  --regridding_unit=$UNIT --longitude_nodes=$NLON --latitude_nodes=$NLAT --usa \
-  --latitude_spacing=equiangular_without_poles \
-  --regridding_method=bilinear \
-  --runner=DirectRunner \
-  --year=$YEAR --month=$MONTH
+for UNIT in 10 2.5; do
+  NLON=$(python -c "from math import ceil; print(ceil(15*240/$UNIT/4)*4)")
+  NLAT=$(python -c "from math import ceil; print(ceil(15*120/$UNIT/4)*4)")
+  time python -u ./scripts/regrid.py \
+    --input_path=datasets/era5/1959-2022-1h-1440x721.zarr \
+    --output_path=datasets/regrid/era5_%{yearmonday_range}-%{grid_shape}-bilinear.zarr \
+    --output_chunks="time=1" \
+    --regridding_unit=$UNIT --longitude_nodes=$NLON --latitude_nodes=$NLAT --usa \
+    --latitude_spacing=equiangular_without_poles \
+    --regridding_method=bilinear \
+    --runner=DirectRunner \
+    $TIME_OPTION
 done
 
 # for LON in 360 1440; do
