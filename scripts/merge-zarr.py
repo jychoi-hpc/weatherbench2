@@ -84,15 +84,15 @@ if __name__ == "__main__":
                 xa = xa.merge(ds[var])
                 break
 
-    selected_vars = [
-            "sea_surface_temperature",
-            "2m_temperature",
-            "total_precipitation_24hr",
-            "2m_temperature_min",
-            "2m_temperature_max",
-            "volumetric_soil_water_layer_1",
-    ]
-    xa = xa[selected_vars]
+    # selected_vars = [
+    #         "sea_surface_temperature",
+    #         "2m_temperature",
+    #         "total_precipitation_24hr",
+    #         "2m_temperature_min",
+    #         "2m_temperature_max",
+    #         "volumetric_soil_water_layer_1",
+    # ]
+    # xa = xa[selected_vars]
 
     # Ensure time is a pandas datetime index
     time_index = pd.DatetimeIndex(xa.time.values)

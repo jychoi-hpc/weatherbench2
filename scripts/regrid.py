@@ -218,7 +218,6 @@ def main(argv):
 
     print("elapsed:", time.time() - t0)
     if "2m_temperature" in source_ds and "2m_temperature_min" not in source_ds:
-        import pdb; pdb.set_trace()
         full_ds, _ = xarray_beam.open_zarr(INPUT_PATH.value)
         nhourly = (source_ds.time[1] - source_ds.time[0]).item() / 3600 / 1e9
         assert nhourly.is_integer()
@@ -287,7 +286,6 @@ def main(argv):
 
 
     print("source_ds:", source_ds)
-    print("input_chunks:", input_chunks)
     print("elapsed:", time.time() - t0)
 
     if PREONLY.value:
@@ -341,6 +339,7 @@ def main(argv):
     ## Global
     print("elapsed:", time.time() - t0)
     if REGRIDDING_USA_ONLY.value is not True:
+        print("Global")
         ## orography
         if (source_ds.longitude < 0).any():
             source_ds = source_ds.assign_coords(
@@ -364,6 +363,7 @@ def main(argv):
             lat_start, lat_stop, num=LATITUDE_NODES.value, endpoint=True
         )
     else:
+        print("USA only")
         ## USA region only
         ## prism, daymet
         ## convert to ERA5 longitude 0-360
@@ -373,7 +373,7 @@ def main(argv):
             )
 
         ## Filter variables
-        const_variables = ["geopotential_at_surface", "orography"]
+        const_variables = ["geopotential_at_surface", "orography", "landcover"]
         prism_selected_variables = ["land_sea_mask", "prcp", "tmax", "tmin"]
         era5_selected_variables = [
             "u_component_of_wind",
@@ -387,6 +387,8 @@ def main(argv):
             "total_precipitation_24hr",
             "2m_temperature_min",
             "2m_temperature_max",
+            "10m_u_component_of_wind",
+            "10m_v_component_of_wind",
             "volumetric_soil_water_layer_1",
         ]
         era5_selected_levels = [200, 500, 850]
@@ -402,6 +404,20 @@ def main(argv):
         selected_variables = selected_const_variables | selected_var_variables
 
         source_ds = source_ds[selected_variables]
+
+        ## temporary (extra only)
+        selected_vars = [
+                # "sea_surface_temperature",
+                # "2m_temperature",
+                # "total_precipitation_24hr",
+                # "2m_temperature_min",
+                # "2m_temperature_max",
+                # "volumetric_soil_water_layer_1",
+                "10m_u_component_of_wind",
+                "10m_v_component_of_wind",
+        ]
+        source_ds = source_ds[selected_vars]
+        del input_chunks["level"]
 
         ## Filter levels
         if "level" in source_ds.coords:
@@ -434,7 +450,6 @@ def main(argv):
         if unit == "deg":
             regrid_unit = regrid_unit * 60
 
-        regrid_unit = REGRIDDING_UNIT.value
         lon_start = us_lon_min
         lon_interval = regrid_unit / 60  # arcmin to deg
         new_lon = lon_start + lon_interval * np.arange(LONGITUDE_NODES.value)
@@ -485,17 +500,6 @@ def main(argv):
     target_grid = regridding.Grid.from_degrees(lon=new_lon, lat=new_lat)
     regridder = regridder_cls(source_grid, target_grid)
 
-    # ## temporary
-    # selected_vars = [
-    #         "sea_surface_temperature",
-    #         "2m_temperature",
-    #         "total_precipitation_24hr",
-    #         "2m_temperature_min",
-    #         "2m_temperature_max",
-    #         "volumetric_soil_water_layer_1",
-    # ]
-    # source_ds = source_ds[selected_vars]
-    # del input_chunks["level"]
     print("source_ds:", source_ds)
     print("input_chunks:", input_chunks)
     print("output_chunks:", output_chunks)
