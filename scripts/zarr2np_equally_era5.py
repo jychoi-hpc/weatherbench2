@@ -1015,9 +1015,6 @@ def main(
         ## use standard name
         SINGLE_LEVEL_VARS = [STANDARD_VARIABLE_MAP.get(var, var) for var in SINGLE_LEVEL_VARS]
         xa = xa.rename(STANDARD_VARIABLE_MAP)
-        print("CONSTANT_VARS:", CONSTANT_VARS)
-        print("SINGLE_LEVEL_VARS:", SINGLE_LEVEL_VARS)
-
     elif ("era5-daymet" in save_dir) or ("era5-prism" in save_dir):
         DEFAULT_PRESSURE_LEVELS = [200, 500, 850]
         CONSTANT_VARS = [
@@ -1041,9 +1038,6 @@ def main(
             "u_component_of_wind",
             "v_component_of_wind",
         ]
-        print("CONSTANT_VARS:", CONSTANT_VARS)
-        print("SINGLE_LEVEL_VARS:", SINGLE_LEVEL_VARS)
-        print("PRESSURE_LEVEL_VARS:", PRESSURE_LEVEL_VARS)
         xa = xa.assign_coords(level=("level", DEFAULT_PRESSURE_LEVELS))
     elif "CMIP6-CMCC" in source_file:
         CONSTANT_VARS = ["land_sea_mask", "latitude", "orography"]
@@ -1054,9 +1048,6 @@ def main(
             "v_component_of_wind",
             "temperature",
         ]
-        print("CONSTANT_VARS:", CONSTANT_VARS)
-        print("SINGLE_LEVEL_VARS:", SINGLE_LEVEL_VARS)
-        print("PRESSURE_LEVEL_VARS:", PRESSURE_LEVEL_VARS)
     elif "CMIP6-TaiESM1" in source_file:
         CONSTANT_VARS = ["land_sea_mask", "latitude", "orography"]
         SINGLE_LEVEL_VARS = [
@@ -1069,9 +1060,6 @@ def main(
             "temperature",
             "specific_humidity",
         ]
-        print("CONSTANT_VARS:", CONSTANT_VARS)
-        print("SINGLE_LEVEL_VARS:", SINGLE_LEVEL_VARS)
-        print("PRESSURE_LEVEL_VARS:", PRESSURE_LEVEL_VARS)
     elif "CMIP6" in source_file:
         CONSTANT_VARS = ["land_sea_mask", "latitude", "orography"]
         SINGLE_LEVEL_VARS = [
@@ -1086,9 +1074,10 @@ def main(
             "temperature",
             "specific_humidity",
         ]
-        print("CONSTANT_VARS:", CONSTANT_VARS)
-        print("SINGLE_LEVEL_VARS:", SINGLE_LEVEL_VARS)
-        print("PRESSURE_LEVEL_VARS:", PRESSURE_LEVEL_VARS)
+    print("CONSTANT_VARS:", CONSTANT_VARS)
+    print("SINGLE_LEVEL_VARS:", SINGLE_LEVEL_VARS)
+    print("PRESSURE_LEVEL_VARS:", PRESSURE_LEVEL_VARS)
+    import pdb; pdb.set_trace()
 
     nlon = len(xa.longitude)
     nlat = len(xa.latitude)

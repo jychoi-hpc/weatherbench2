@@ -83,37 +83,38 @@ def macro_replace(outfile, xa):
 
         outfile = outfile.replace("%{grid_shape}", grid_shape)
 
-    tmin = xa.time.min()
-    tmax = xa.time.max()
-    if "%{year}" in outfile:
-        timestr0 = tmin.dt.strftime("%Y").item()
-        outfile = outfile.replace("%{year}", f"{timestr0}")
+    if "time" in xa.dims:
+        tmin = xa.time.min()
+        tmax = xa.time.max()
+        if "%{year}" in outfile:
+            timestr0 = tmin.dt.strftime("%Y").item()
+            outfile = outfile.replace("%{year}", f"{timestr0}")
 
-    if "%{yearmon}" in outfile:
-        timestr0 = tmin.dt.strftime("%Y%m").item()
-        outfile = outfile.replace("%{yearmon}", f"{timestr0}")
+        if "%{yearmon}" in outfile:
+            timestr0 = tmin.dt.strftime("%Y%m").item()
+            outfile = outfile.replace("%{yearmon}", f"{timestr0}")
 
-    if "%{yearmonday}" in outfile:
-        timestr0 = tmin.dt.strftime("%Y%m%d").item()
-        outfile = outfile.replace("%{yearmonday}", f"{timestr0}")
+        if "%{yearmonday}" in outfile:
+            timestr0 = tmin.dt.strftime("%Y%m%d").item()
+            outfile = outfile.replace("%{yearmonday}", f"{timestr0}")
 
-    if "%{year_range}" in outfile:
-        timestr0 = tmin.dt.strftime("%Y").item()
-        timestr1 = (tmax + np.timedelta64(1, "Y")).dt.strftime("%Y").item()
-        outfile = outfile.replace("%{year_range}", f"{timestr0}-{timestr1}")
+        if "%{year_range}" in outfile:
+            timestr0 = tmin.dt.strftime("%Y").item()
+            timestr1 = (tmax + np.timedelta64(1, "Y")).dt.strftime("%Y").item()
+            outfile = outfile.replace("%{year_range}", f"{timestr0}-{timestr1}")
 
-    if "%{yearmon_range}" in outfile:
-        timestr0 = tmin.dt.strftime("%Y%m").item()
-        timestr1 = (tmax + np.timedelta64(1, "M")).dt.strftime("%Y%m").item()
-        outfile = outfile.replace("%{yearmon_range}", f"{timestr0}-{timestr1}")
+        if "%{yearmon_range}" in outfile:
+            timestr0 = tmin.dt.strftime("%Y%m").item()
+            timestr1 = (tmax + np.timedelta64(1, "M")).dt.strftime("%Y%m").item()
+            outfile = outfile.replace("%{yearmon_range}", f"{timestr0}-{timestr1}")
 
-    if "%{yearmonday_range}" in outfile:
-        timestr0 = tmin.dt.strftime("%Y%m%d").item()
-        nhourly = (xa.time[1] - xa.time[0]).item() / 3600 / 1e9
-        assert nhourly.is_integer()
-        nhourly = int(nhourly)
-        timestr1 = (tmax + np.timedelta64(nhourly, "h")).dt.strftime("%Y%m%d").item()
-        outfile = outfile.replace("%{yearmonday_range}", f"{timestr0}-{timestr1}")
+        if "%{yearmonday_range}" in outfile:
+            timestr0 = tmin.dt.strftime("%Y%m%d").item()
+            nhourly = (xa.time[1] - xa.time[0]).item() / 3600 / 1e9
+            assert nhourly.is_integer()
+            nhourly = int(nhourly)
+            timestr1 = (tmax + np.timedelta64(nhourly, "h")).dt.strftime("%Y%m%d").item()
+            outfile = outfile.replace("%{yearmonday_range}", f"{timestr0}-{timestr1}")
 
     return outfile
 
@@ -212,40 +213,42 @@ def main(argv):
                 time1 = f"{YEAR.value}-{MONTH.value:02d}-{DAY_END.value:02d}"
                 time0 = fix_invalid_date(time0)
                 time1 = fix_invalid_date(time1) + np.timedelta64(23, "h")  ## inclusive
-    time_slice = slice(time0, time1)
-    selected = source_ds.sel(time=time_slice)
+        time_slice = slice(time0, time1)
+        source_ds = source_ds.sel(time=time_slice)
 
     print("elapsed:", time.time() - t0)
-    if "2m_temperature_min" not in selected:
+    if "2m_temperature" in source_ds and "2m_temperature_min" not in source_ds:
+        import pdb; pdb.set_trace()
+        full_ds, _ = xarray_beam.open_zarr(INPUT_PATH.value)
         nhourly = (source_ds.time[1] - source_ds.time[0]).item() / 3600 / 1e9
         assert nhourly.is_integer()
         nhourly = int(nhourly)
         nsamples = 24 // nhourly
 
-        if selected.time[0] > source_ds.time[0]:
-            extra = source_ds.sel(
+        if source_ds.time[0] > source_ds.time[0]:
+            extra = full_ds.sel(
                 time=slice(
-                    selected.time[0] - np.timedelta64(24 - nhourly, "h"),
-                    selected.time[0] - 1,
+                    source_ds.time[0] - np.timedelta64(24 - nhourly, "h"),
+                    source_ds.time[0] - 1,
                 )
             )
         else:
-            extra = source_ds.sel(
+            extra = full_ds.sel(
                 time=slice(
-                    selected.time[0],
-                    selected.time[0] + np.timedelta64(24 - nhourly, "h") - 1,
+                    source_ds.time[0],
+                    source_ds.time[0] + np.timedelta64(24 - nhourly, "h") - 1,
                 )
             )
             extra = extra.assign_coords(
                 time=extra.time - np.timedelta64(24 - nhourly, "h")
             )
 
-        selected_plus = xr.concat(
+        combined = xr.concat(
             [
                 extra[
                     ["sea_surface_temperature", "2m_temperature", "total_precipitation"]
                 ],
-                selected[
+                source_ds[
                     ["sea_surface_temperature", "2m_temperature", "total_precipitation"]
                 ],
             ],
@@ -253,38 +256,35 @@ def main(argv):
         )
 
         ## handle nan values in sea_surface_temperature
-        if "sea_surface_temperature" in selected_plus:
-            selected_plus["2m_temperature_combined"] = selected_plus[
+        if "sea_surface_temperature" in combined:
+            combined["2m_temperature_combined"] = combined[
                 "sea_surface_temperature"
-            ].combine_first(selected_plus["2m_temperature"])
+            ].combine_first(combined["2m_temperature"])
 
-        selected["2m_temperature_min"] = (
-            selected_plus["2m_temperature_combined"]
+        source_ds["2m_temperature_min"] = (
+            combined["2m_temperature_combined"]
             .rolling(time=nsamples, center=False)
             .min()
             .dropna("time")
             .compute()
         )
 
-        selected["2m_temperature_max"] = (
-            selected_plus["2m_temperature_combined"]
+        source_ds["2m_temperature_max"] = (
+            combined["2m_temperature_combined"]
             .rolling(time=nsamples, center=False)
             .max()
             .dropna("time")
             .compute()
         )
 
-        selected["total_precipitation_24hr"] = (
-            selected_plus["total_precipitation"]
+        source_ds["total_precipitation_24hr"] = (
+            combined["total_precipitation"]
             .rolling(time=nsamples, center=False)
             .sum()
             .dropna("time")
             .compute()
         )
 
-        source_ds = selected
-    else:
-        source_ds = selected
 
     print("source_ds:", source_ds)
     print("input_chunks:", input_chunks)
@@ -485,17 +485,17 @@ def main(argv):
     target_grid = regridding.Grid.from_degrees(lon=new_lon, lat=new_lat)
     regridder = regridder_cls(source_grid, target_grid)
 
-    ## temporary
-    selected_vars = [
-            "sea_surface_temperature",
-            "2m_temperature",
-            "total_precipitation_24hr",
-            "2m_temperature_min",
-            "2m_temperature_max",
-            "volumetric_soil_water_layer_1",
-    ]
-    source_ds = source_ds[selected_vars]
-    del input_chunks["level"]
+    # ## temporary
+    # selected_vars = [
+    #         "sea_surface_temperature",
+    #         "2m_temperature",
+    #         "total_precipitation_24hr",
+    #         "2m_temperature_min",
+    #         "2m_temperature_max",
+    #         "volumetric_soil_water_layer_1",
+    # ]
+    # source_ds = source_ds[selected_vars]
+    # del input_chunks["level"]
     print("source_ds:", source_ds)
     print("input_chunks:", input_chunks)
     print("output_chunks:", output_chunks)

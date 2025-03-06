@@ -20,19 +20,19 @@ echo "DAYS: $DAY_BEGIN $DAY_END"
 
 # for UNIT in 1.0_deg; do
 # for UNIT in 1.40625_deg; do
-for UNIT in 5.625_deg; do
-  NLON=$(python -c "from math import ceil; regrid_unit, unit = '$UNIT'.split('_'); regrid_unit = float(regrid_unit) if unit == 'deg' else float(regrid_unit)/60.0; print(ceil(360/regrid_unit/4)*4)")
-  NLAT=$(python -c "from math import ceil; regrid_unit, unit = '$UNIT'.split('_'); regrid_unit = float(regrid_unit) if unit == 'deg' else float(regrid_unit)/60.0; print(ceil(180/regrid_unit/4)*4)")
-  time python -u ./scripts/regrid.py \
-    --input_path=datasets/era5/1959-2022-1h-1440x721.zarr \
-    --output_path=datasets/regrid_$UNIT/era5-%{yearmonday_range}-%{grid_shape}-bilinear.zarr \
-    --output_chunks="time=1" \
-    --regridding_unit=$UNIT --longitude_nodes=$NLON --latitude_nodes=$((NLAT+1)) \
-    --latitude_spacing=equiangular_with_poles \
-    --regridding_method=bilinear \
-    --runner=DirectRunner \
-    $TIME_OPTION
-done
+# for UNIT in 5.625_deg; do
+#   NLON=$(python -c "from math import ceil; regrid_unit, unit = '$UNIT'.split('_'); regrid_unit = float(regrid_unit) if unit == 'deg' else float(regrid_unit)/60.0; print(ceil(360/regrid_unit/4)*4)")
+#   NLAT=$(python -c "from math import ceil; regrid_unit, unit = '$UNIT'.split('_'); regrid_unit = float(regrid_unit) if unit == 'deg' else float(regrid_unit)/60.0; print(ceil(180/regrid_unit/4)*4)")
+#   time python -u ./scripts/regrid.py \
+#     --input_path=datasets/era5/1959-2022-1h-1440x721.zarr \
+#     --output_path=datasets/regrid_$UNIT/era5-%{yearmonday_range}-%{grid_shape}-bilinear.zarr \
+#     --output_chunks="time=1" \
+#     --regridding_unit=$UNIT --longitude_nodes=$NLON --latitude_nodes=$((NLAT+1)) \
+#     --latitude_spacing=equiangular_with_poles \
+#     --regridding_method=bilinear \
+#     --runner=DirectRunner \
+#     $TIME_OPTION
+# done
 
 # for UNIT in 10_arcmin 2.5_arcmin; do
 #   NLON=$(python -c "from math import ceil; regrid_unit, unit = '$UNIT'.split('_'); regrid_unit = float(regrid_unit) if unit == 'deg' else float(regrid_unit)/60.0; print(ceil(360/regrid_unit/4)*4)")
@@ -71,6 +71,16 @@ done
 #     --regridding_method=bilinear \
 #     --runner=DirectRunner
 # done
+
+for LON in 64 256 360 1440; do
+  time python -u ./scripts/regrid.py \
+    --input_path=datasets/contants/landcover_43200x21600.zarr \
+    --output_path=datasets/contants/landcover_%{grid_shape}-bilinear.zarr \
+    --longitude_nodes=$LON --latitude_nodes=$((LON/2+1)) \
+    --latitude_spacing=equiangular_with_poles \
+    --regridding_method=bilinear \
+    --runner=DirectRunner
+done
 
 # for LON in 64 256 360 1440; do 
 #   LAT=$((LON/2+1))
