@@ -50,11 +50,13 @@ ds['time_of_day'] = (('time'), tod)
 ds.to_zarr('era5/1959-2022-6h-64x32_equiangular_conservative.zarr', mode='a')
 
 """
-CONSTANT_VARS = ["land_sea_mask", "orography", "latitude"]
+CONSTANT_VARS = ["land_sea_mask", "landcover", "orography", "latitude"]
 EXTRA_VARS = ["days_of_year", "time_of_day"]
 
 SINGLE_LEVEL_VARS = [
     "2m_temperature",
+    "2m_temperature_max",
+    "2m_temperature_min",
     "10m_u_component_of_wind",
     "10m_v_component_of_wind",
     "mean_sea_level_pressure",
@@ -63,6 +65,7 @@ SINGLE_LEVEL_VARS = [
     # "total_precipitation_6hr",
     "total_precipitation",
     "sea_surface_temperature",
+    "volumetric_soil_water_layer_1",
 ]
 
 PRESSURE_LEVEL_VARS = [
@@ -89,6 +92,11 @@ DEFAULT_PRESSURE_LEVELS = [
     1000,
 ]
 
+STANDARD_VARIABLE_MAP = {
+    "prcp": "total_precipitation",
+    "tmin": "2m_temperature_min",
+    "tmax": "2m_temperature_max",
+}
 
 DAYS_PER_YEAR = 365  # 365-day year
 HOURS_PER_YEAR = DAYS_PER_YEAR * 24  # 365-day year
@@ -181,13 +189,12 @@ def get_data(
     if level is not None:
         kw["level"] = level
 
-    actual_times = xa[var]["time"].values
-    expected_times = kw["time"].values
-    missing_times = set(expected_times) - set(actual_times)
-    xa[var].sel(time=slice("2012-02-28", "2012-03-01")).time
-    len(xa[var].sel(time="2012").time)
+    # actual_times = xa[var]["time"].values
+    # expected_times = kw["time"].values
+    # missing_times = set(expected_times) - set(actual_times)
+    # xa[var].sel(time=slice("2012-02-28", "2012-03-01")).time
+    # len(xa[var].sel(time="2012").time)
 
-    
     xdata = xa[var].sel(**kw)
     assert len(xdata.shape) < 5, ("too many dims", xdata.shape)
     x = xdata.data
@@ -1003,25 +1010,36 @@ def main(
         ]
         SINGLE_LEVEL_VARS = list(set(xa.data_vars) - set(CONSTANT_VARS))
         PRESSURE_LEVEL_VARS = list()
-        print("CONSTANT_VARS:", CONSTANT_VARS)
-        print("SINGLE_LEVEL_VARS:", SINGLE_LEVEL_VARS)
         xa = xa.assign_coords(level=("level", DEFAULT_PRESSURE_LEVELS))
 
-    elif ("era5-daymet" in source_file) or ("era5-prism" in source_file):
-        DEFAULT_PRESSURE_LEVELS = [500, 850]
-        CONSTANT_VARS = ["land_sea_mask", "latitude", "orography"]
+        ## use standard name
+        SINGLE_LEVEL_VARS = [STANDARD_VARIABLE_MAP.get(var, var) for var in SINGLE_LEVEL_VARS]
+        xa = xa.rename(STANDARD_VARIABLE_MAP)
+        print("CONSTANT_VARS:", CONSTANT_VARS)
+        print("SINGLE_LEVEL_VARS:", SINGLE_LEVEL_VARS)
+
+    elif ("era5-daymet" in save_dir) or ("era5-prism" in save_dir):
+        DEFAULT_PRESSURE_LEVELS = [200, 500, 850]
+        CONSTANT_VARS = [
+            "land_sea_mask",
+            "landcover",
+            "latitude",
+            "orography",
+        ]
         SINGLE_LEVEL_VARS = [
-            "prcp",
             "2m_temperature",
+            "2m_temperature_max",
+            "2m_temperature_min",
             "sea_surface_temperature",
             "total_precipitation",
+            "volumetric_soil_water_layer_1",
         ]
         PRESSURE_LEVEL_VARS = [
             "geopotential",
+            "specific_humidity",
+            "temperature",
             "u_component_of_wind",
             "v_component_of_wind",
-            "temperature",
-            "specific_humidity",
         ]
         print("CONSTANT_VARS:", CONSTANT_VARS)
         print("SINGLE_LEVEL_VARS:", SINGLE_LEVEL_VARS)
@@ -1029,8 +1047,7 @@ def main(
         xa = xa.assign_coords(level=("level", DEFAULT_PRESSURE_LEVELS))
     elif "CMIP6-CMCC" in source_file:
         CONSTANT_VARS = ["land_sea_mask", "latitude", "orography"]
-        SINGLE_LEVEL_VARS = [
-        ]
+        SINGLE_LEVEL_VARS = []
         PRESSURE_LEVEL_VARS = [
             "geopotential",
             "u_component_of_wind",
@@ -1072,7 +1089,6 @@ def main(
         print("CONSTANT_VARS:", CONSTANT_VARS)
         print("SINGLE_LEVEL_VARS:", SINGLE_LEVEL_VARS)
         print("PRESSURE_LEVEL_VARS:", PRESSURE_LEVEL_VARS)
-
 
     nlon = len(xa.longitude)
     nlat = len(xa.latitude)

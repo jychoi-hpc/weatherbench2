@@ -2,7 +2,7 @@ import xarray as xr
 import os
 from dask.diagnostics import ProgressBar
 import argparse
-
+import pandas as pd
 
 def macro_replace(outfile, xa):
     if "%{grid_shape}" in outfile:
@@ -45,6 +45,7 @@ if __name__ == "__main__":
     parser.add_argument("--chunk_time", type=int, default=100)
     parser.add_argument("--join", help="join outer, inner, etc.", default="outer")
     parser.add_argument("--mode", help="mode", default="w")
+    parser.add_argument("--dryrun", action="store_true", help="dry run")
     args = parser.parse_args()
 
     # nlon = args.nlon
@@ -83,14 +84,52 @@ if __name__ == "__main__":
                 xa = xa.merge(ds[var])
                 break
 
+    selected_vars = [
+            "sea_surface_temperature",
+            "2m_temperature",
+            "total_precipitation_24hr",
+            "2m_temperature_min",
+            "2m_temperature_max",
+            "volumetric_soil_water_layer_1",
+    ]
+    xa = xa[selected_vars]
+
+    # Ensure time is a pandas datetime index
+    time_index = pd.DatetimeIndex(xa.time.values)
+
+    # Generate the full expected range of dates
+    full_time_range = pd.date_range(start=time_index.min(), end=time_index.max(), freq="D")
+
+    # Find missing dates
+    missing_days = full_time_range.difference(time_index)
+    print("Time range:", time_index.min(), time_index.max())
+    print("Missing days:", missing_days)
+
     xa = xa.chunk({"time": args.chunk_time})
     print(xa)
 
     outfile = macro_replace(args.outfile, xa)
     print("output_path:", outfile)
+    print("mode:", args.mode)
 
     with ProgressBar():
         for var in xa:
             del xa[var].encoding["chunks"]
-        print("outfile:", outfile)
-        xa.to_zarr(outfile, mode=args.mode)
+        if not args.dryrun:
+            xa.to_zarr(outfile, mode=args.mode)
+        
+        # if args.mode == "a'":
+        #     assert os.path.exists(outfile)
+        #     ds = xr.open_zarr(outfile)
+            
+        #     # Add variables
+        #     for var in xa.data_vars:
+        #         ds[var] = xa[var]
+            
+        #     print("Appending:", outfile)
+        #     ds.to_zarr(outfile, mode=args.mode)
+        # else:
+        #     print("Writing:", outfile)
+        #     xa.to_zarr(outfile, mode="w")
+    
+    print("Done.")

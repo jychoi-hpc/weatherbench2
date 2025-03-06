@@ -57,6 +57,9 @@ from filelock import FileLock, SoftFileLock, Timeout
 import time
 
 from datetime import datetime, timedelta
+import sys
+
+xr.set_options(display_max_rows=1000)
 
 
 def fix_invalid_date(date_str):
@@ -127,8 +130,8 @@ LONGITUDE_NODES = flags.DEFINE_integer(
     "longitude_nodes", None, help="number of desired longitude nodes"
 )
 # REGRIDDING_SCALE = flags.DEFINE_float("scale", None, help="regridding_scale")
-REGRIDDING_UNIT = flags.DEFINE_float(
-    "regridding_unit", None, help="regridding unit in arcmin"
+REGRIDDING_UNIT = flags.DEFINE_string(
+    "regridding_unit", None, help="regridding unit (e.g., 0.25_deg or 15.0_arcmin)"
 )
 REGRIDDING_USA_ONLY = flags.DEFINE_bool("usa", False, "usa")
 LATITUDE_SPACING = flags.DEFINE_enum(
@@ -158,8 +161,9 @@ RUNNER = flags.DEFINE_string("runner", None, "beam.runners.Runner")
 YEAR = flags.DEFINE_integer("year", None, help="year")
 MONTH = flags.DEFINE_integer("month", None, help="month")
 DAY_BEGIN = flags.DEFINE_integer("day_begin", None, help="day begin")
-DAY_END = flags.DEFINE_integer("day_end", None, help="day end") ## inclusive
+DAY_END = flags.DEFINE_integer("day_end", None, help="day end")  ## inclusive
 FILLNA = flags.DEFINE_bool("fillna", False, "fillna")
+PREONLY = flags.DEFINE_bool("preonly", False, "preonly")
 
 
 class ProgressDoFn(beam.DoFn):
@@ -207,12 +211,12 @@ def main(argv):
                 time0 = f"{YEAR.value}-{MONTH.value:02d}-{DAY_BEGIN.value:02d}"
                 time1 = f"{YEAR.value}-{MONTH.value:02d}-{DAY_END.value:02d}"
                 time0 = fix_invalid_date(time0)
-                time1 = fix_invalid_date(time1) + np.timedelta64(23, "h") ## inclusive
+                time1 = fix_invalid_date(time1) + np.timedelta64(23, "h")  ## inclusive
     time_slice = slice(time0, time1)
     selected = source_ds.sel(time=time_slice)
 
     print("elapsed:", time.time() - t0)
-    if True:
+    if "2m_temperature_min" not in selected:
         nhourly = (source_ds.time[1] - source_ds.time[0]).item() / 3600 / 1e9
         assert nhourly.is_integer()
         nhourly = int(nhourly)
@@ -229,16 +233,21 @@ def main(argv):
             extra = source_ds.sel(
                 time=slice(
                     selected.time[0],
-                selected.time[0] + np.timedelta64(24 - nhourly, "h") - 1,
+                    selected.time[0] + np.timedelta64(24 - nhourly, "h") - 1,
                 )
             )
             extra = extra.assign_coords(
                 time=extra.time - np.timedelta64(24 - nhourly, "h")
             )
+
         selected_plus = xr.concat(
             [
-                extra[["sea_surface_temperature", "2m_temperature"]],
-                selected[["sea_surface_temperature", "2m_temperature"]],
+                extra[
+                    ["sea_surface_temperature", "2m_temperature", "total_precipitation"]
+                ],
+                selected[
+                    ["sea_surface_temperature", "2m_temperature", "total_precipitation"]
+                ],
             ],
             dim="time",
         )
@@ -256,6 +265,7 @@ def main(argv):
             .dropna("time")
             .compute()
         )
+
         selected["2m_temperature_max"] = (
             selected_plus["2m_temperature_combined"]
             .rolling(time=nsamples, center=False)
@@ -263,11 +273,43 @@ def main(argv):
             .dropna("time")
             .compute()
         )
+
+        selected["total_precipitation_24hr"] = (
+            selected_plus["total_precipitation"]
+            .rolling(time=nsamples, center=False)
+            .sum()
+            .dropna("time")
+            .compute()
+        )
+
+        source_ds = selected
+    else:
         source_ds = selected
 
     print("source_ds:", source_ds)
     print("input_chunks:", input_chunks)
     print("elapsed:", time.time() - t0)
+
+    if PREONLY.value:
+        source_ds["2m_temperature_combined"] = source_ds[
+            "sea_surface_temperature"
+        ].combine_first(source_ds["2m_temperature"])
+
+        source_ds = source_ds[
+            ["2m_temperature_min", "2m_temperature_max", "total_precipitation_24hr", "2m_temperature_combined"]
+        ]
+
+        output_chunks = OUTPUT_CHUNKS.value
+        print("OUTPUT_CHUNKS:", repr(output_chunks))
+        source_ds = source_ds.chunk(output_chunks)
+
+        output_path = OUTPUT_PATH.value
+        output_path = macro_replace(output_path, source_ds)
+        print("output_path:", output_path)
+
+        with ProgressBar():
+            source_ds.to_zarr(output_path, mode="w")
+        sys.exit()
 
     # Rename latitude/longitude names
     renames = {
@@ -290,15 +332,9 @@ def main(argv):
     us_lat_min, _, us_lon_min, _ = us_bounds
 
     ## Common
-    if "total_precipitation_24hr" in source_ds:
-        assert "total_precipitation" not in source_ds
-        source_ds = source_ds.rename(
-            {"total_precipitation_24hr": "total_precipitation"}
-        )
-
     ## handle nan values in sea_surface_temperature
     if "sea_surface_temperature" in source_ds:
-        source_ds["2m_temperature_combined"] = source_ds[
+        source_ds["2m_temperature"] = source_ds["sea_surface_temperature"] = source_ds[
             "sea_surface_temperature"
         ].combine_first(source_ds["2m_temperature"])
 
@@ -348,7 +384,7 @@ def main(argv):
             "sea_surface_temperature",
             "geopotential_at_surface",
             "2m_temperature",
-            "total_precipitation",
+            "total_precipitation_24hr",
             "2m_temperature_min",
             "2m_temperature_max",
             "volumetric_soil_water_layer_1",
@@ -391,6 +427,12 @@ def main(argv):
         source_ds = source_ds.sortby(["longitude", "latitude"])
         old_lon = np.sort(source_ds.coords["longitude"].data)
         old_lat = np.sort(source_ds.coords["latitude"].data)
+
+        ## arcmin
+        regrid_unit, unit = REGRIDDING_UNIT.value.split("_")
+        regrid_unit = float(regrid_unit)
+        if unit == "deg":
+            regrid_unit = regrid_unit * 60
 
         regrid_unit = REGRIDDING_UNIT.value
         lon_start = us_lon_min
@@ -442,6 +484,21 @@ def main(argv):
     source_grid = regridding.Grid.from_degrees(lon=old_lon, lat=old_lat)
     target_grid = regridding.Grid.from_degrees(lon=new_lon, lat=new_lat)
     regridder = regridder_cls(source_grid, target_grid)
+
+    ## temporary
+    selected_vars = [
+            "sea_surface_temperature",
+            "2m_temperature",
+            "total_precipitation_24hr",
+            "2m_temperature_min",
+            "2m_temperature_max",
+            "volumetric_soil_water_layer_1",
+    ]
+    source_ds = source_ds[selected_vars]
+    del input_chunks["level"]
+    print("source_ds:", source_ds)
+    print("input_chunks:", input_chunks)
+    print("output_chunks:", output_chunks)
 
     template = (
         xarray_beam.make_template(source_ds)
