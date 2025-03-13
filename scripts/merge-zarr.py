@@ -94,18 +94,19 @@ if __name__ == "__main__":
     # ]
     # xa = xa[selected_vars]
 
-    # Ensure time is a pandas datetime index
-    time_index = pd.DatetimeIndex(xa.time.values)
+    if "time" in xa.dims:
+        # Ensure time is a pandas datetime index
+        time_index = pd.DatetimeIndex(xa.time.values)
 
-    # Generate the full expected range of dates
-    full_time_range = pd.date_range(start=time_index.min(), end=time_index.max(), freq="D")
+        # Generate the full expected range of dates
+        full_time_range = pd.date_range(start=time_index.min(), end=time_index.max(), freq="D")
 
-    # Find missing dates
-    missing_days = full_time_range.difference(time_index)
-    print("Time range:", time_index.min(), time_index.max())
-    print("Missing days:", missing_days)
+        # Find missing dates
+        missing_days = full_time_range.difference(time_index)
+        print("Time range:", time_index.min(), time_index.max())
+        print("Missing days:", missing_days)
 
-    xa = xa.chunk({"time": args.chunk_time})
+        xa = xa.chunk({"time": args.chunk_time})
     print(xa)
 
     outfile = macro_replace(args.outfile, xa)

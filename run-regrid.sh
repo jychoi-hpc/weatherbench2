@@ -19,34 +19,34 @@ echo "MONTH: $MONTH"
 echo "DAYS: $DAY_BEGIN $DAY_END"
 
 # for UNIT in 1.0_deg; do
-# for UNIT in 1.40625_deg; do
+for UNIT in 1.40625_deg; do
 # for UNIT in 5.625_deg; do
-#   NLON=$(python -c "from math import ceil; regrid_unit, unit = '$UNIT'.split('_'); regrid_unit = float(regrid_unit) if unit == 'deg' else float(regrid_unit)/60.0; print(ceil(360/regrid_unit/4)*4)")
-#   NLAT=$(python -c "from math import ceil; regrid_unit, unit = '$UNIT'.split('_'); regrid_unit = float(regrid_unit) if unit == 'deg' else float(regrid_unit)/60.0; print(ceil(180/regrid_unit/4)*4)")
-#   time python -u ./scripts/regrid.py \
-#     --input_path=datasets/era5/1959-2022-1h-1440x721.zarr \
-#     --output_path=datasets/regrid_$UNIT/era5-%{yearmonday_range}-%{grid_shape}-bilinear.zarr \
-#     --output_chunks="time=1" \
-#     --regridding_unit=$UNIT --longitude_nodes=$NLON --latitude_nodes=$((NLAT+1)) \
-#     --latitude_spacing=equiangular_with_poles \
-#     --regridding_method=bilinear \
-#     --runner=DirectRunner \
-#     $TIME_OPTION
-# done
-
-for UNIT in 10.0_arcmin 2.5_arcmin; do
   NLON=$(python -c "from math import ceil; regrid_unit, unit = '$UNIT'.split('_'); regrid_unit = float(regrid_unit) if unit == 'deg' else float(regrid_unit)/60.0; print(ceil(360/regrid_unit/4)*4)")
   NLAT=$(python -c "from math import ceil; regrid_unit, unit = '$UNIT'.split('_'); regrid_unit = float(regrid_unit) if unit == 'deg' else float(regrid_unit)/60.0; print(ceil(180/regrid_unit/4)*4)")
   time python -u ./scripts/regrid.py \
     --input_path=datasets/era5/1959-2022-1h-1440x721.zarr \
-    --output_path=datasets/regrid_era5_$UNIT/era5-usa_%{yearmonday_range}-%{grid_shape}-bilinear.zarr \
-    --output_chunks="time=100" \
-    --regridding_unit=$UNIT --longitude_nodes=$((NLON/6)) --latitude_nodes=$((NLAT/6)) --usa \
-    --latitude_spacing=equiangular_without_poles \
+    --output_path=datasets/regrid_$UNIT/era5-%{yearmonday_range}-%{grid_shape}-bilinear.zarr \
+    --output_chunks="time=1" \
+    --regridding_unit=$UNIT --longitude_nodes=$NLON --latitude_nodes=$((NLAT+1)) \
+    --latitude_spacing=equiangular_with_poles \
     --regridding_method=bilinear \
     --runner=DirectRunner \
     $TIME_OPTION
 done
+
+# for UNIT in 2.5_arcmin; do
+#   NLON=$(python -c "from math import ceil; regrid_unit, unit = '$UNIT'.split('_'); regrid_unit = float(regrid_unit) if unit == 'deg' else float(regrid_unit)/60.0; print(ceil(360/regrid_unit/4)*4)")
+#   NLAT=$(python -c "from math import ceil; regrid_unit, unit = '$UNIT'.split('_'); regrid_unit = float(regrid_unit) if unit == 'deg' else float(regrid_unit)/60.0; print(ceil(180/regrid_unit/4)*4)")
+#   time python -u ./scripts/regrid.py \
+#     --input_path=datasets/era5/1959-2022-1h-1440x721.zarr \
+#     --output_path=datasets/regrid_era5-usa_%{grid_shape}/era5-usa_%{yearmonday_range}-%{grid_shape}-bilinear.zarr \
+#     --output_chunks="time=100" \
+#     --regridding_unit=$UNIT --longitude_nodes=$((NLON/6)) --latitude_nodes=$((NLAT/6)) --usa \
+#     --latitude_spacing=equiangular_without_poles \
+#     --regridding_method=bilinear \
+#     --runner=DirectRunner \
+#     $TIME_OPTION
+# done
 
 # for UNIT in 0.25_deg 1.0_deg 1.40625_deg 5.625_deg; do
 #   NLON=$(python -c "from math import ceil; regrid_unit, unit = '$UNIT'.split('_'); regrid_unit = float(regrid_unit) if unit == 'deg' else float(regrid_unit)/60.0; print(ceil(360/regrid_unit/4)*4)")
@@ -116,21 +116,6 @@ done
 #     --regridding_method=bilinear \
 #     --runner=DirectRunner \
 #     --year=$YEAR
-# done
-# done
-
-# for DSET in MPI-ESM AWI-ESM HAMMOZ CMCC TaiESM1; do
-# for NLON in 64 256; do
-#   NLAT=$((NLON/2 + 1))
-#   LNAME=$(echo $DSET | tr '[:upper:]' '[:lower:]')
-#   time python -u ./scripts/regrid.py \
-#     --input_path=datasets/cmip6/$DSET-1980-2015-360x180.zarr \
-#     --output_path=datasets/cmip6/cmip6-${LNAME}_%{year_range}-%{grid_shape}-bilinear.zarr \
-#     --output_chunks="time=100" \
-#     --longitude_nodes=$NLON --latitude_nodes=$NLAT \
-#     --latitude_spacing=equiangular_with_poles \
-#     --regridding_method=bilinear \
-#     --runner=DirectRunner
 # done
 # done
 

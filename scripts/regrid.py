@@ -100,12 +100,12 @@ def macro_replace(outfile, xa):
 
         if "%{year_range}" in outfile:
             timestr0 = tmin.dt.strftime("%Y").item()
-            timestr1 = (tmax + np.timedelta64(1, "Y")).dt.strftime("%Y").item()
+            timestr1 = (tmax + np.timedelta64(1, "Y").astype("timedelta64[D]")).dt.strftime("%Y").item()
             outfile = outfile.replace("%{year_range}", f"{timestr0}-{timestr1}")
 
         if "%{yearmon_range}" in outfile:
             timestr0 = tmin.dt.strftime("%Y%m").item()
-            timestr1 = (tmax + np.timedelta64(1, "M")).dt.strftime("%Y%m").item()
+            timestr1 = (tmax + np.timedelta64(1, "M").astype("timedelta64[D]")).dt.strftime("%Y%m").item()
             outfile = outfile.replace("%{yearmon_range}", f"{timestr0}-{timestr1}")
 
         if "%{yearmonday_range}" in outfile:
@@ -113,7 +113,9 @@ def macro_replace(outfile, xa):
             nhourly = (xa.time[1] - xa.time[0]).item() / 3600 / 1e9
             assert nhourly.is_integer()
             nhourly = int(nhourly)
-            timestr1 = (tmax + np.timedelta64(nhourly, "h")).dt.strftime("%Y%m%d").item()
+            timestr1 = (
+                (tmax + np.timedelta64(nhourly, "h")).dt.strftime("%Y%m%d").item()
+            )
             outfile = outfile.replace("%{yearmonday_range}", f"{timestr0}-{timestr1}")
 
     return outfile
@@ -217,7 +219,10 @@ def main(argv):
         source_ds = source_ds.sel(time=time_slice)
 
     print("elapsed:", time.time() - t0)
-    if "2m_temperature" in source_ds and "2m_temperature_min" not in source_ds:
+    if ("2m_temperature" in source_ds and "2m_temperature_min" not in source_ds) or (
+        "total_precipitation" in source_ds
+        and "total_precipitation_24hr" not in source_ds
+    ):
         full_ds, _ = xarray_beam.open_zarr(INPUT_PATH.value)
         nhourly = (source_ds.time[1] - source_ds.time[0]).item() / 3600 / 1e9
         assert nhourly.is_integer()
@@ -242,14 +247,15 @@ def main(argv):
                 time=extra.time - np.timedelta64(24 - nhourly, "h")
             )
 
+        var_list = list()
+        for var in ["sea_surface_temperature", "2m_temperature", "total_precipitation"]:
+            if var in source_ds:
+                var_list.append(var)
+
         combined = xr.concat(
             [
-                extra[
-                    ["sea_surface_temperature", "2m_temperature", "total_precipitation"]
-                ],
-                source_ds[
-                    ["sea_surface_temperature", "2m_temperature", "total_precipitation"]
-                ],
+                extra[var_list],
+                source_ds[var_list],
             ],
             dim="time",
         )
@@ -259,55 +265,76 @@ def main(argv):
             combined["2m_temperature_combined"] = combined[
                 "sea_surface_temperature"
             ].combine_first(combined["2m_temperature"])
+        elif "2m_temperature" in combined:
+            combined["2m_temperature_combined"] = combined["2m_temperature"]
 
-        source_ds["2m_temperature_min"] = (
-            combined["2m_temperature_combined"]
-            .rolling(time=nsamples, center=False)
-            .min()
-            .dropna("time")
-            .compute()
-        )
+        if "2m_temperature_combined" in combined:
+            source_ds["2m_temperature_min"] = (
+                combined["2m_temperature_combined"]
+                .rolling(time=nsamples, center=False)
+                .min()
+                .dropna("time")
+                .compute()
+            )
 
-        source_ds["2m_temperature_max"] = (
-            combined["2m_temperature_combined"]
-            .rolling(time=nsamples, center=False)
-            .max()
-            .dropna("time")
-            .compute()
-        )
+            source_ds["2m_temperature_max"] = (
+                combined["2m_temperature_combined"]
+                .rolling(time=nsamples, center=False)
+                .max()
+                .dropna("time")
+                .compute()
+            )
 
-        source_ds["total_precipitation_24hr"] = (
-            combined["total_precipitation"]
-            .rolling(time=nsamples, center=False)
-            .sum()
-            .dropna("time")
-            .compute()
-        )
-
+        if "total_precipitation" in combined:
+            source_ds["total_precipitation_24hr"] = (
+                combined["total_precipitation"]
+                .rolling(time=nsamples, center=False)
+                .sum()
+                .dropna("time")
+                .compute()
+            )
 
     print("source_ds:", source_ds)
     print("elapsed:", time.time() - t0)
 
-    if PREONLY.value:
-        source_ds["2m_temperature_combined"] = source_ds[
-            "sea_surface_temperature"
-        ].combine_first(source_ds["2m_temperature"])
+    # ## Temporary (extra only)
+    # selected_vars = [
+    #     "sea_surface_temperature",
+    #     "2m_temperature",
+    #     "total_precipitation_24hr",
+    #     "2m_temperature_min",
+    #     "2m_temperature_max",
+    #     "volumetric_soil_water_layer_1",
+    #     "10m_u_component_of_wind",
+    #     "10m_v_component_of_wind",
+    # ]
+    # selected_vars_ = list()
+    # for var in selected_vars:
+    #     if var in source_ds:
+    #         selected_vars_.append(var)
+    # source_ds = source_ds[selected_vars_]
+    # del input_chunks["level"]
 
-        source_ds = source_ds[
-            ["2m_temperature_min", "2m_temperature_max", "total_precipitation_24hr", "2m_temperature_combined"]
-        ]
+    # if PREONLY.value:
+    #     source_ds["2m_temperature_combined"] = source_ds[
+    #         "sea_surface_temperature"
+    #     ].combine_first(source_ds["2m_temperature"])
 
-        output_chunks = OUTPUT_CHUNKS.value
-        print("OUTPUT_CHUNKS:", repr(output_chunks))
-        source_ds = source_ds.chunk(output_chunks)
+    #     source_ds = source_ds[
+    #         ["2m_temperature_min", "2m_temperature_max", "total_precipitation_24hr", "2m_temperature_combined"]
+    #     ]
 
-        output_path = OUTPUT_PATH.value
-        output_path = macro_replace(output_path, source_ds)
-        print("output_path:", output_path)
+    #     output_chunks = OUTPUT_CHUNKS.value
+    #     print("OUTPUT_CHUNKS:", repr(output_chunks))
+    #     source_ds = source_ds.chunk(output_chunks)
 
-        with ProgressBar():
-            source_ds.to_zarr(output_path, mode="w")
-        sys.exit()
+    #     output_path = OUTPUT_PATH.value
+    #     output_path = macro_replace(output_path, source_ds)
+    #     print("output_path:", output_path)
+
+    #     with ProgressBar():
+    #         source_ds.to_zarr(output_path, mode="w")
+    #     sys.exit()
 
     # Rename latitude/longitude names
     renames = {
@@ -320,6 +347,8 @@ def main(argv):
     # Lat/lon must be single chunk for regridding.
     input_chunks["longitude"] = -1
     input_chunks["latitude"] = -1
+    if "level" in input_chunks:
+        input_chunks["level"] = -1
 
     us_bounds = (
         24,
@@ -405,19 +434,19 @@ def main(argv):
 
         source_ds = source_ds[selected_variables]
 
-        ## temporary (extra only)
-        selected_vars = [
-                # "sea_surface_temperature",
-                # "2m_temperature",
-                # "total_precipitation_24hr",
-                # "2m_temperature_min",
-                # "2m_temperature_max",
-                # "volumetric_soil_water_layer_1",
-                "10m_u_component_of_wind",
-                "10m_v_component_of_wind",
-        ]
-        source_ds = source_ds[selected_vars]
-        del input_chunks["level"]
+        # ## Temporary (extra only)
+        # selected_vars = [
+        #         "sea_surface_temperature",
+        #         "2m_temperature",
+        #         "total_precipitation_24hr",
+        #         # "2m_temperature_min",
+        #         # "2m_temperature_max",
+        #         # "volumetric_soil_water_layer_1",
+        #         # "10m_u_component_of_wind",
+        #         # "10m_v_component_of_wind",
+        # ]
+        # source_ds = source_ds[selected_vars]
+        # del input_chunks["level"]
 
         ## Filter levels
         if "level" in source_ds.coords:

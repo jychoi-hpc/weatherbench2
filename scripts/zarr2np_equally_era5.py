@@ -66,10 +66,9 @@ SINGLE_LEVEL_VARS = [
     "2m_temperature_max",
     "2m_temperature_min",
     "2m_temperature",
-    "mean_sea_level_pressure",
     "sea_surface_temperature",
     "surface_pressure",
-    "total_precipitation",
+    "total_precipitation_24hr",
     "volumetric_soil_water_layer_1",
 ]
 
@@ -96,9 +95,10 @@ DEFAULT_PRESSURE_LEVELS = [
     925,
     1000,
 ]
+# DEFAULT_PRESSURE_LEVELS = [200, 500, 850]
 
 STANDARD_VARIABLE_MAP = {
-    "prcp": "total_precipitation",
+    "prcp": "total_precipitation_24hr",
     "tmin": "2m_temperature_min",
     "tmax": "2m_temperature_max",
 }
@@ -248,6 +248,7 @@ def get_mean_std(
     sharded_time_range=None,
     level=None,
 ):
+    print("get_mean_std:", var, len(sharded_time_range))
     if level is not None:
         mean = xa[var].sel(time=sharded_time_range, level=level).mean().compute()
         std = xa[var].sel(time=sharded_time_range, level=level).std().compute()
@@ -747,6 +748,7 @@ def zarr2nc(
                 future_list = list()
                 var_list = list()
                 for var in TqdmWithDepth(SINGLE_LEVEL_VARS, desc="single"):
+                    print("submmit:", var, total_num_steps_per_shard, hrs_each_step, len(sharded_time_range))
                     f = executor.submit(
                         get_data,
                         xa,
@@ -955,8 +957,8 @@ def mpihello():
 )
 @click.option("--max_workers", type=int, default=8)
 @click.option("--parallel", type=str, default="mpi")
-@click.option("--hrs_each_step", type=int, default=6)
-@click.option("--extra_steps", type=int, default=40)
+# @click.option("--hrs_each_step", type=int, default=6)
+@click.option("--extra_steps", type=int, default=0)
 @click.option("--daysofyear", type=int, default=366)
 @click.option("--latlon", is_flag=True, default=True)
 def main(
@@ -972,7 +974,7 @@ def main(
     tasks,
     max_workers,
     parallel,
-    hrs_each_step,
+    # hrs_each_step,
     extra_steps,
     daysofyear,
     latlon,
@@ -1037,7 +1039,7 @@ def main(
             "2m_temperature_max",
             "2m_temperature_min",
             "sea_surface_temperature",
-            "total_precipitation",
+            "total_precipitation_24hr",
             "volumetric_soil_water_layer_1",
         ]
         PRESSURE_LEVEL_VARS = [
@@ -1083,6 +1085,18 @@ def main(
             "temperature",
             "specific_humidity",
         ]
+
+    # ## Temporary
+    # CONSTANT_VARS = [
+    #     "orography",
+    #     "landcover",
+    #     "latitude",
+    # ]
+    # SINGLE_LEVEL_VARS = [
+    #     "2m_temperature_max",
+    #     "2m_temperature_min",
+    # ]
+    # PRESSURE_LEVEL_VARS = []
     print("CONSTANT_VARS:", CONSTANT_VARS)
     print("SINGLE_LEVEL_VARS:", SINGLE_LEVEL_VARS)
     print("PRESSURE_LEVEL_VARS:", PRESSURE_LEVEL_VARS)
@@ -1132,6 +1146,10 @@ def main(
         save_dir = save_dir.replace("%{arcmin}", f"{arcmin:.1f}")
     os.makedirs(save_dir, exist_ok=True)
     print("save_dir:", save_dir)
+
+    hrs_each_step = (xa.time[1] - xa.time[0]).item() / 3600 / 1e9
+    assert hrs_each_step.is_integer()
+    hrs_each_step = int(hrs_each_step)
 
     task_list = tasks.split(",")
 
@@ -1195,8 +1213,8 @@ def main(
 
             print(">>> norm")
             if "norm" in task_list:
-                zarr2nc_normalize(xa, test_years, save_dir, "test", num_shards, **kw)
-                zarr2nc_normalize(xa, val_years, save_dir, "val", num_shards, **kw)
+                # zarr2nc_normalize(xa, test_years, save_dir, "test", num_shards, **kw)
+                # zarr2nc_normalize(xa, val_years, save_dir, "val", num_shards, **kw)
                 zarr2nc_normalize(xa, train_years, save_dir, "train", num_shards, **kw)
 
             print(">>> clim")
