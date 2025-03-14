@@ -1024,6 +1024,12 @@ def main(
             STANDARD_VARIABLE_MAP.get(var, var) for var in SINGLE_LEVEL_VARS
         ]
         xa = xa.rename(STANDARD_VARIABLE_MAP)
+
+        ## Change unit
+        xa["total_precipitation_24hr"] = xa["total_precipitation_24hr"] / 1000.0 ## mm to m
+        xa["2m_temperature_min"] = xa["2m_temperature_min"] + 273.15 ## Celsius to K
+        xa["2m_temperature_max"] = xa["2m_temperature_max"] + 273.15 ## Celsius to K
+
     elif ("era5-daymet" in save_dir) or ("era5-prism" in save_dir):
         DEFAULT_PRESSURE_LEVELS = [200, 500, 850]
         CONSTANT_VARS = [

@@ -109,7 +109,7 @@ if __name__ == "__main__":
     mk = (~mk).astype(np.float32)
     xa["land_sea_mask"] = mk
 
-    xa = xa[["prcp", "tmax", "tmin"]]
+    xa = xa[["prcp", "tmax", "tmin", "land_sea_mask"]]
     # xa = xa[[args.varname]]
 
     xa = xa.chunk({"time": 1, "latitude": -1, "longitude": -1})
@@ -152,9 +152,10 @@ if __name__ == "__main__":
 
     if rank == 0:
         with ProgressBar():
-            xa.to_zarr(output_path, region=region)
+            xa[["prcp", "tmax", "tmin"]].to_zarr(output_path, region=region)
+            xa["land_sea_mask"].to_zarr(output_path, mode="a")
     else:
-        xa.to_zarr(output_path, region=region)
+        xa[["prcp", "tmax", "tmin"]].to_zarr(output_path, region=region)
 
     comm.Barrier()
 
