@@ -391,6 +391,54 @@ def main(argv):
         new_lat = np.linspace(
             lat_start, lat_stop, num=LATITUDE_NODES.value, endpoint=True
         )
+
+        if "era5-imerg" in INPUT_PATH.value:
+            ## temporary for ERA5-IMERGE
+            ## Filter variables
+            const_variables = ["geopotential_at_surface", "orography", "landcover"]
+            era5_selected_variables = [
+                "u_component_of_wind",
+                "v_component_of_wind",
+                "temperature",
+                "specific_humidity",
+                "geopotential",
+                "sea_surface_temperature",
+                "geopotential_at_surface",
+                "2m_temperature",
+                "total_precipitation_24hr",
+                "2m_temperature_min",
+                "2m_temperature_max",
+                "10m_u_component_of_wind",
+                "10m_v_component_of_wind",
+                "volumetric_soil_water_layer_1",
+            ]
+            era5_selected_levels = [200, 500, 850]
+
+            data_variables = set(list(source_ds.data_vars))
+            selected_const_variables = data_variables & set(const_variables)
+            selected_var_variables = data_variables & set(era5_selected_variables)
+            selected_variables = selected_const_variables | selected_var_variables
+
+            source_ds = source_ds[selected_variables]
+
+            ## Filter levels
+            if "level" in source_ds.coords:
+                source_ds = source_ds.sel(level=era5_selected_levels)
+
+            ## Filter hours
+            if "time" in source_ds:
+                ## Convert n-hourly (n<24) to daily
+                nhourly = (source_ds.time[1] - source_ds.time[0]).item() / 3600 / 1e9
+                assert nhourly.is_integer()
+                nhourly = int(nhourly)
+                if nhourly < 24:
+                    samples_per_day = 24 // nhourly
+                    source_ds_1dy = source_ds.coarsen(
+                        time=samples_per_day
+                    ).mean()  ## fixed daily bins
+                    source_ds_1dy["time"] = source_ds_1dy.time.dt.floor("D")
+                    source_ds = source_ds_1dy
+
     else:
         print("USA only")
         ## USA region only
@@ -456,7 +504,7 @@ def main(argv):
         # source_ds = source_ds.sel(time=source_ds.time.dt.hour == 0)
         # source_ds = source_ds.resample(time="1D").mean() ## slow
         # source_ds = source_ds.groupby(source_ds.time.dt.floor("D")).mean() ## time var changes
-        if "time" in source_ds:
+        if "time" in source_ds and ("cmip6" not in INPUT_PATH.value):
             ## Convert n-hourly (n<24) to daily
             nhourly = (source_ds.time[1] - source_ds.time[0]).item() / 3600 / 1e9
             assert nhourly.is_integer()

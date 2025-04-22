@@ -101,6 +101,7 @@ STANDARD_VARIABLE_MAP = {
     "prcp": "total_precipitation_24hr",
     "tmin": "2m_temperature_min",
     "tmax": "2m_temperature_max",
+    "precipitation": "total_precipitation_24hr", ## IMERG
 }
 
 DAYS_PER_YEAR = 365  # 365-day year
@@ -1078,7 +1079,7 @@ def main(
             "specific_humidity",
         ]
     elif "CMIP6" in source_file:
-        CONSTANT_VARS = ["land_sea_mask", "latitude", "orography"]
+        CONSTANT_VARS = ["land_sea_mask", "latitude", "orography", "landcover"]
         SINGLE_LEVEL_VARS = [
             "2m_temperature",
             "10m_u_component_of_wind",
@@ -1091,6 +1092,43 @@ def main(
             "temperature",
             "specific_humidity",
         ]
+    elif "MPI-usa" in source_file:
+        CONSTANT_VARS = ["land_sea_mask", "latitude", "orography", "landcover"]
+        SINGLE_LEVEL_VARS = [
+            "2m_temperature",
+            "2m_temperature_max",
+            "2m_temperature_min",
+        ]
+        PRESSURE_LEVEL_VARS = [
+            "u_component_of_wind",
+            "v_component_of_wind",
+            "temperature",
+            "specific_humidity",
+        ]
+        DEFAULT_PRESSURE_LEVELS = [200, 500, 850]
+    
+    elif ("GCM" in source_file) or ("RegCM" in source_file):
+        print("GCM/RegCM case")
+        ## handle for prism, gcm
+        CONSTANT_VARS = [
+            "land_sea_mask",
+            "latitude",
+            "orography",
+            "landcover",
+        ]
+        SINGLE_LEVEL_VARS = list(set(xa.data_vars) - set(CONSTANT_VARS))
+        PRESSURE_LEVEL_VARS = list()
+
+        ## use standard name
+        SINGLE_LEVEL_VARS = [
+            STANDARD_VARIABLE_MAP.get(var, var) for var in SINGLE_LEVEL_VARS
+        ]
+        xa = xa.rename(STANDARD_VARIABLE_MAP)
+
+        ## Change unit
+        xa["total_precipitation_24hr"] = xa["total_precipitation_24hr"] / 1000.0 ## mm to m
+        xa["2m_temperature_min"] = xa["2m_temperature_min"] + 273.15 ## Celsius to K
+        xa["2m_temperature_max"] = xa["2m_temperature_max"] + 273.15 ## Celsius to K
 
     # ## Temporary
     # CONSTANT_VARS = [
@@ -1121,9 +1159,15 @@ def main(
         xa = xa.isel(latitude=slice(None, None, -1))
 
     if latlon:
-        xa = xa.transpose("time", "level", "latitude", "longitude")
+        if "level" in xa:
+            xa = xa.transpose("time", "level", "latitude", "longitude")
+        else:
+            xa = xa.transpose("time", "latitude", "longitude")
     else:
-        xa = xa.transpose("time", "level", "longitude", "latitude")
+        if "level" in xa:
+            xa = xa.transpose("time", "level", "longitude", "latitude")
+        else:
+            xa = xa.transpose("time", "longitude", "latitude")
 
     if "orography" not in xa:
         if "geopotential_at_surface" in xa:
@@ -1195,14 +1239,41 @@ def main(
             if parallel == "mpi":
                 print("#3: Master?", rank, size)
 
-            print(">>> main")
             kw = {
                 "hrs_each_step": hrs_each_step,
                 "extra_steps": extra_steps,
                 "daysofyear": daysofyear,
                 "executor": executor,
             }
+
+            if "check" in task_list:
+                print(">>> check")
+                ## same for all: train, val, and test
+                zarr2nc_check(xa, save_dir, **kw)
+
+            if "norm" in task_list:
+                print(">>> norm")
+                # zarr2nc_normalize(xa, test_years, save_dir, "test", num_shards, **kw)
+                # zarr2nc_normalize(xa, val_years, save_dir, "val", num_shards, **kw)
+                zarr2nc_normalize(xa, train_years, save_dir, "train", num_shards, **kw)
+
+            if "clim" in task_list:
+                print(">>> clim")
+                zarr2nc_climatology(xa, test_years, save_dir, "test", num_shards, **kw)
+                zarr2nc_climatology(xa, val_years, save_dir, "val", num_shards, **kw)
+                zarr2nc_climatology(
+                    xa, train_years, save_dir, "train", num_shards, **kw
+                )
+
+            if "clim2" in task_list:
+                print(">>> clim2")
+                xb = xr.open_zarr(climatology_file)
+
+                ## same for all: train, val, and test
+                zarr2nc_wb(xa, xb, save_dir)
+
             if "main" in task_list:
+                print(">>> main")
                 zarr2nc(xa, test_years, save_dir, "test", num_shards, **kw)
                 zarr2nc(xa, val_years, save_dir, "val", num_shards, **kw)
                 zarr2nc(xa, train_years, save_dir, "train", num_shards, **kw)
@@ -1211,32 +1282,6 @@ def main(
                 lon = xa["longitude"].data
                 np.save(os.path.join(save_dir, "lat.npy"), lat)
                 np.save(os.path.join(save_dir, "lon.npy"), lon)
-
-            print(">>> check")
-            if "check" in task_list:
-                ## same for all: train, val, and test
-                zarr2nc_check(xa, save_dir, **kw)
-
-            print(">>> norm")
-            if "norm" in task_list:
-                # zarr2nc_normalize(xa, test_years, save_dir, "test", num_shards, **kw)
-                # zarr2nc_normalize(xa, val_years, save_dir, "val", num_shards, **kw)
-                zarr2nc_normalize(xa, train_years, save_dir, "train", num_shards, **kw)
-
-            print(">>> clim")
-            if "clim" in task_list:
-                zarr2nc_climatology(xa, test_years, save_dir, "test", num_shards, **kw)
-                zarr2nc_climatology(xa, val_years, save_dir, "val", num_shards, **kw)
-                zarr2nc_climatology(
-                    xa, train_years, save_dir, "train", num_shards, **kw
-                )
-
-            print(">>> clim2")
-            if "clim2" in task_list:
-                xb = xr.open_zarr(climatology_file)
-
-                ## same for all: train, val, and test
-                zarr2nc_wb(xa, xb, save_dir)
 
             print("Done.")
 

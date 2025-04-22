@@ -118,6 +118,8 @@ if __name__ == "__main__":
             del xa[var].encoding["chunks"]
         if not args.dryrun:
             xa.to_zarr(outfile, mode=args.mode)
+        # if not args.dryrun:
+        #     xa.to_netcdf(outfile.replace(".zarr", ".nc"), mode=args.mode)
         
         # if args.mode == "a'":
         #     assert os.path.exists(outfile)
