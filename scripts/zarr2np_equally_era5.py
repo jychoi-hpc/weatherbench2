@@ -67,7 +67,7 @@ SINGLE_LEVEL_VARS = [
     "2m_temperature_min",
     "2m_temperature",
     "sea_surface_temperature",
-    "surface_pressure",
+    # "surface_pressure",
     "total_precipitation_24hr",
     "volumetric_soil_water_layer_1",
 ]
@@ -81,19 +81,19 @@ PRESSURE_LEVEL_VARS = [
 ]
 
 DEFAULT_PRESSURE_LEVELS = [
-    50,
-    100,
-    150,
+    # 50,
+    # 100,
+    # 150,
     200,
-    250,
-    300,
-    400,
+    # 250,
+    # 300,
+    # 400,
     500,
-    600,
-    700,
+    # 600,
+    # 700,
     850,
-    925,
-    1000,
+    # 925,
+    # 1000,
 ]
 # DEFAULT_PRESSURE_LEVELS = [200, 500, 850]
 
@@ -1031,7 +1031,7 @@ def main(
         xa["2m_temperature_min"] = xa["2m_temperature_min"] + 273.15 ## Celsius to K
         xa["2m_temperature_max"] = xa["2m_temperature_max"] + 273.15 ## Celsius to K
 
-    elif ("era5-daymet" in save_dir) or ("era5-prism" in save_dir):
+    elif ("era5-daymet" in save_dir) or ("era5-prism" in save_dir) or ("era5-imerg" in source_file):
         DEFAULT_PRESSURE_LEVELS = [200, 500, 850]
         CONSTANT_VARS = [
             "land_sea_mask",
@@ -1107,7 +1107,7 @@ def main(
         ]
         DEFAULT_PRESSURE_LEVELS = [200, 500, 850]
     
-    elif ("GCM" in source_file) or ("RegCM" in source_file):
+    elif ("GCM" in source_file) or ("RegCM" in source_file) or ("IMERG" in save_dir):
         print("GCM/RegCM case")
         ## handle for prism, gcm
         CONSTANT_VARS = [
@@ -1116,19 +1116,30 @@ def main(
             "orography",
             "landcover",
         ]
-        SINGLE_LEVEL_VARS = list(set(xa.data_vars) - set(CONSTANT_VARS))
+        SINGLE_LEVEL_VARS = [
+            "prcp",
+            "tmin",
+            "tmax",
+            "precipitation",
+        ]
+        SINGLE_LEVEL_VARS = [ v for v in SINGLE_LEVEL_VARS if v in xa.data_vars]
         PRESSURE_LEVEL_VARS = list()
+
+        valid_map = {k: v for k, v in STANDARD_VARIABLE_MAP.items() if k in SINGLE_LEVEL_VARS}
+        xa = xa.rename(valid_map)
 
         ## use standard name
         SINGLE_LEVEL_VARS = [
             STANDARD_VARIABLE_MAP.get(var, var) for var in SINGLE_LEVEL_VARS
         ]
-        xa = xa.rename(STANDARD_VARIABLE_MAP)
 
         ## Change unit
-        xa["total_precipitation_24hr"] = xa["total_precipitation_24hr"] / 1000.0 ## mm to m
-        xa["2m_temperature_min"] = xa["2m_temperature_min"] + 273.15 ## Celsius to K
-        xa["2m_temperature_max"] = xa["2m_temperature_max"] + 273.15 ## Celsius to K
+        if "total_precipitation_24hr" in xa:
+            xa["total_precipitation_24hr"] = xa["total_precipitation_24hr"] / 1000.0 ## mm to m
+        if "2m_temperature_min" in xa:
+            xa["2m_temperature_min"] = xa["2m_temperature_min"] + 273.15 ## Celsius to K
+        if "2m_temperature_max" in xa:
+            xa["2m_temperature_max"] = xa["2m_temperature_max"] + 273.15 ## Celsius to K
 
     # ## Temporary
     # CONSTANT_VARS = [
@@ -1191,9 +1202,16 @@ def main(
     if "%{deg}" in save_dir:
         deg = np.diff(xa.longitude.data)[0]
         save_dir = save_dir.replace("%{deg}", f"{deg}")
+        if int(deg) == deg:
+            save_dir = save_dir.replace("%{deg}", f"{deg:.1f}")
+        else:
+            save_dir = save_dir.replace("%{deg}", f"{deg}")
     if "%{arcmin}" in save_dir:
         arcmin = np.diff(xa.longitude.data)[0] * 60
-        save_dir = save_dir.replace("%{arcmin}", f"{arcmin:.1f}")
+        if int(arcmin) == arcmin:
+            save_dir = save_dir.replace("%{arcmin}", f"{arcmin:.1f}")
+        else:
+            save_dir = save_dir.replace("%{arcmin}", f"{arcmin}")
     os.makedirs(save_dir, exist_ok=True)
     print("save_dir:", save_dir)
 

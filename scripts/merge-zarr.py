@@ -94,6 +94,12 @@ if __name__ == "__main__":
     # ]
     # xa = xa[selected_vars]
 
+    # if "total_precipitation_24hr" in xa:
+    #     xa["total_precipitation_24hr"] = xa["total_precipitation_24hr"].where(xa["total_precipitation_24hr"] >= 0, 0.0)
+
+    # if "precipitation" in xa:
+    #     xa["precipitation"] = xa["precipitation"].where(xa["precipitation"] >= 0, 0.0)
+
     if "time" in xa.dims:
         # Ensure time is a pandas datetime index
         time_index = pd.DatetimeIndex(xa.time.values)
@@ -115,7 +121,8 @@ if __name__ == "__main__":
 
     with ProgressBar():
         for var in xa:
-            del xa[var].encoding["chunks"]
+            if "chunks" in xa[var].encoding:
+                del xa[var].encoding["chunks"]
         if not args.dryrun:
             xa.to_zarr(outfile, mode=args.mode)
         # if not args.dryrun:

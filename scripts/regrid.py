@@ -197,6 +197,11 @@ class ProgressDoFn(beam.DoFn):
             self.progress_bar.close()
             self.progress_bar = None
 
+def check_negative(v):
+    k = "total_precipitation_24hr"
+    if k in v:
+        v[k] = v[k].where(v[k] > 0, 0.0)
+    return v
 
 def main(argv):
     # ds = xr.open_dataset("datasets/orography/GTOPO_DEM_30s.nc")
@@ -206,6 +211,7 @@ def main(argv):
 
     t0 = time.time()
     source_ds, input_chunks = xarray_beam.open_zarr(INPUT_PATH.value)
+    import pdb; pdb.set_trace()
     if YEAR.value is not None:
         time0 = time1 = f"{YEAR.value}"
         if MONTH.value is not None:
@@ -392,7 +398,7 @@ def main(argv):
             lat_start, lat_stop, num=LATITUDE_NODES.value, endpoint=True
         )
 
-        if "era5-imerg" in INPUT_PATH.value:
+        if "era5-imerg" in OUTPUT_PATH.value:
             ## temporary for ERA5-IMERGE
             ## Filter variables
             const_variables = ["geopotential_at_surface", "orography", "landcover"]
@@ -594,6 +600,7 @@ def main(argv):
         np.prod([len(c) for c in da.chunks]) for da in chunked_ds.data_vars.values()
     )
     print(f"Total number of chunks across all variables: {total_chunks}")
+    import pdb; pdb.set_trace()
 
     with ProgressBar():
         with beam.Pipeline(runner=RUNNER.value, argv=argv) as root:
@@ -608,6 +615,8 @@ def main(argv):
                 | "Progress" >> beam.ParDo(ProgressDoFn(total_chunks))
                 | "Regrid"
                 >> beam.MapTuple(lambda k, v: (k, regridder.regrid_dataset(v)))
+                | "ResetNegative"
+                >> beam.MapTuple(lambda k, v: (k, check_negative(v)))
                 | xarray_beam.ConsolidateChunks(output_chunks)
                 | xarray_beam.ChunksToZarr(
                     output_path,

@@ -19,7 +19,7 @@ echo "YEAR: $YEAR"
 echo "MONTH: $MONTH"
 echo "DAYS: $DAY_BEGIN $DAY_END"
 
-# for UNIT in 0.25_deg; do
+# for UNIT in 1.0_deg 0.25_deg; do
 #   NLON=$(python -c "from math import ceil; regrid_unit, unit = '$UNIT'.split('_'); regrid_unit = float(regrid_unit) if unit == 'deg' else float(regrid_unit)/60.0; print(ceil(360/regrid_unit/4)*4)")
 #   NLAT=$(python -c "from math import ceil; regrid_unit, unit = '$UNIT'.split('_'); regrid_unit = float(regrid_unit) if unit == 'deg' else float(regrid_unit)/60.0; print(ceil(180/regrid_unit/4)*4)")
 #   time python -u ./scripts/regrid.py \
@@ -33,19 +33,33 @@ echo "DAYS: $DAY_BEGIN $DAY_END"
 #     $TIME_OPTION
 # done
 
-for UNIT in 1.0_deg 0.25_deg 3.75_arcmin; do
-  NLON=$(python -c "from math import ceil; regrid_unit, unit = '$UNIT'.split('_'); regrid_unit = float(regrid_unit) if unit == 'deg' else float(regrid_unit)/60.0; print(ceil(360/regrid_unit/4)*4)")
-  NLAT=$(python -c "from math import ceil; regrid_unit, unit = '$UNIT'.split('_'); regrid_unit = float(regrid_unit) if unit == 'deg' else float(regrid_unit)/60.0; print(ceil(180/regrid_unit/4)*4)")
-  time python -u ./scripts/regrid.py \
-    --input_path=datasets/IMERG/IMERG-1998-2025-3600x1800.zarr \
-    --output_path=datasets/regrid_imerge/IMERG-%{yearmonday_range}-%{grid_shape}-bilinear.zarr \
-    --output_chunks="time=1" \
-    --regridding_unit=$UNIT --longitude_nodes=$NLON --latitude_nodes=$((NLAT+1)) \
-    --latitude_spacing=equiangular_with_poles \
-    --regridding_method=bilinear \
-    --runner=DirectRunner \
-    $TIME_OPTION
-done
+# for UNIT in 3.75_arcmin 15.0_arcmin; do
+#   NLON=$(python -c "from math import ceil; regrid_unit, unit = '$UNIT'.split('_'); regrid_unit = float(regrid_unit) if unit == 'deg' else float(regrid_unit)/60.0; print(ceil(360/regrid_unit/4)*4)")
+#   NLAT=$(python -c "from math import ceil; regrid_unit, unit = '$UNIT'.split('_'); regrid_unit = float(regrid_unit) if unit == 'deg' else float(regrid_unit)/60.0; print(ceil(180/regrid_unit/4)*4)")
+#   time python -u ./scripts/regrid.py \
+#     --input_path=datasets/era5/1959-2022-1h-1440x721.zarr \
+#     --output_path=datasets/regrid_era5-usa/era5-usa_%{yearmonday_range}-%{grid_shape}-bilinear.zarr \
+#     --output_chunks="time=1" \
+#     --regridding_unit=$UNIT --longitude_nodes=$((NLON/6)) --latitude_nodes=$((NLAT/6)) --usa \
+#     --latitude_spacing=equiangular_without_poles \
+#     --regridding_method=bilinear \
+#     --runner=DirectRunner \
+#     $TIME_OPTION
+# done
+
+# for UNIT in 1.0_deg 0.25_deg 0.0625_deg; do
+#   NLON=$(python -c "from math import ceil; regrid_unit, unit = '$UNIT'.split('_'); regrid_unit = float(regrid_unit) if unit == 'deg' else float(regrid_unit)/60.0; print(ceil(360/regrid_unit/4)*4)")
+#   NLAT=$(python -c "from math import ceil; regrid_unit, unit = '$UNIT'.split('_'); regrid_unit = float(regrid_unit) if unit == 'deg' else float(regrid_unit)/60.0; print(ceil(180/regrid_unit/4)*4)")
+#   time python -u ./scripts/regrid.py \
+#     --input_path=datasets/IMERG/IMERG-1998-2025-1d-3600x1800.zarr \
+#     --output_path=datasets/regrid_imerg/IMERG-%{yearmonday_range}-%{grid_shape}-bilinear.zarr \
+#     --output_chunks="time=1" \
+#     --regridding_unit=$UNIT --longitude_nodes=$NLON --latitude_nodes=$((NLAT+1)) \
+#     --latitude_spacing=equiangular_with_poles \
+#     --regridding_method=bilinear \
+#     --runner=DirectRunner \
+#     $TIME_OPTION
+# done
 
 # # for DSET in ACCESS-CM2 BCC-CSM2-MR CNRM-ESM2-1 MPI-ESM1-2-HR MRI-ESM2-0 NorESM2-MM; do
 # DSET=$1
@@ -80,20 +94,20 @@ done
 # done
 # done
 
-# # for UNIT in 2.0_arcmin 0.5_arcmin; do
-# for UNIT in 2.0_arcmin; do
-#   NLON=$(python -c "from math import ceil; regrid_unit, unit = '$UNIT'.split('_'); regrid_unit = float(regrid_unit) if unit == 'deg' else float(regrid_unit)/60.0; print(ceil(360/regrid_unit/4)*4)")
-#   NLAT=$(python -c "from math import ceil; regrid_unit, unit = '$UNIT'.split('_'); regrid_unit = float(regrid_unit) if unit == 'deg' else float(regrid_unit)/60.0; print(ceil(180/regrid_unit/4)*4)")
-#   time python -u ./scripts/regrid.py \
-#     --input_path=datasets/daymet/daymet_1980-2023-1d-7200x3600.zarr \
-#     --output_path=datasets/regrid_daymet_%{grid_shape}/daymet_%{yearmonday_range}-%{grid_shape}-bilinear.zarr \
-#     --output_chunks="time=1" \
-#     --regridding_unit=$UNIT --longitude_nodes=$((NLON/6)) --latitude_nodes=$((NLAT/6)) --usa \
-#     --latitude_spacing=equiangular_without_poles \
-#     --regridding_method=bilinear \
-#     --runner=DirectRunner \
-#     $TIME_OPTION
-# done
+# for UNIT in 2.0_arcmin 0.5_arcmin; do
+for UNIT in 3.75_arcmin 15.0_arcmin; do
+  NLON=$(python -c "from math import ceil; regrid_unit, unit = '$UNIT'.split('_'); regrid_unit = float(regrid_unit) if unit == 'deg' else float(regrid_unit)/60.0; print(ceil(360/regrid_unit/4)*4)")
+  NLAT=$(python -c "from math import ceil; regrid_unit, unit = '$UNIT'.split('_'); regrid_unit = float(regrid_unit) if unit == 'deg' else float(regrid_unit)/60.0; print(ceil(180/regrid_unit/4)*4)")
+  time python -u ./scripts/regrid.py \
+    --input_path=datasets/daymet/daymet_1980-2023-1d-7200x3600.zarr \
+    --output_path=datasets/regrid_daymet/daymet_%{yearmonday_range}-%{grid_shape}-bilinear.zarr \
+    --output_chunks="time=1" \
+    --regridding_unit=$UNIT --longitude_nodes=$((NLON/6)) --latitude_nodes=$((NLAT/6)) --usa \
+    --latitude_spacing=equiangular_without_poles \
+    --regridding_method=bilinear \
+    --runner=DirectRunner \
+    $TIME_OPTION
+done
 
 # # for UNIT in 1.0_deg; do
 # for UNIT in 1.40625_deg; do
@@ -106,20 +120,6 @@ done
 #     --output_chunks="time=1" \
 #     --regridding_unit=$UNIT --longitude_nodes=$NLON --latitude_nodes=$((NLAT+1)) \
 #     --latitude_spacing=equiangular_with_poles \
-#     --regridding_method=bilinear \
-#     --runner=DirectRunner \
-#     $TIME_OPTION
-# done
-
-# for UNIT in 2.5_arcmin; do
-#   NLON=$(python -c "from math import ceil; regrid_unit, unit = '$UNIT'.split('_'); regrid_unit = float(regrid_unit) if unit == 'deg' else float(regrid_unit)/60.0; print(ceil(360/regrid_unit/4)*4)")
-#   NLAT=$(python -c "from math import ceil; regrid_unit, unit = '$UNIT'.split('_'); regrid_unit = float(regrid_unit) if unit == 'deg' else float(regrid_unit)/60.0; print(ceil(180/regrid_unit/4)*4)")
-#   time python -u ./scripts/regrid.py \
-#     --input_path=datasets/era5/1959-2022-1h-1440x721.zarr \
-#     --output_path=datasets/regrid_era5-usa_%{grid_shape}/era5-usa_%{yearmonday_range}-%{grid_shape}-bilinear.zarr \
-#     --output_chunks="time=100" \
-#     --regridding_unit=$UNIT --longitude_nodes=$((NLON/6)) --latitude_nodes=$((NLAT/6)) --usa \
-#     --latitude_spacing=equiangular_without_poles \
 #     --regridding_method=bilinear \
 #     --runner=DirectRunner \
 #     $TIME_OPTION
@@ -152,16 +152,17 @@ done
 # done
 
 # # for UNIT in 2.0_arcmin 0.5_arcmin; do
-# for UNIT in 15.0_arcmin 60.0_arcmin; do
+# # for UNIT in 15.0_arcmin 60.0_arcmin; do
+# for UNIT in 3.75_arcmin 15.0_arcmin; do
 #   NLON=$(python -c "from math import ceil; regrid_unit, unit = '$UNIT'.split('_'); regrid_unit = float(regrid_unit) if unit == 'deg' else float(regrid_unit)/60.0; print(ceil(360/regrid_unit/4)*4)")
 #   NLAT=$(python -c "from math import ceil; regrid_unit, unit = '$UNIT'.split('_'); regrid_unit = float(regrid_unit) if unit == 'deg' else float(regrid_unit)/60.0; print(ceil(180/regrid_unit/4)*4)")
-#   # time python -u ./scripts/regrid.py \
-#   #   --input_path=datasets/contants/orography_43200x21600.zarr \
-#   #   --output_path=datasets/contants/orography-usa_%{grid_shape}-bilinear.zarr \
-#   #   --regridding_unit=$UNIT --longitude_nodes=$((NLON/6)) --latitude_nodes=$((NLAT/6)) --usa \
-#   #   --latitude_spacing=equiangular_without_poles \
-#   #   --regridding_method=bilinear \
-#   #   --runner=DirectRunner
+#   time python -u ./scripts/regrid.py \
+#     --input_path=datasets/contants/orography_43200x21600.zarr \
+#     --output_path=datasets/contants/orography-usa_%{grid_shape}-bilinear.zarr \
+#     --regridding_unit=$UNIT --longitude_nodes=$((NLON/6)) --latitude_nodes=$((NLAT/6)) --usa \
+#     --latitude_spacing=equiangular_without_poles \
+#     --regridding_method=bilinear \
+#     --runner=DirectRunner
 #   time python -u ./scripts/regrid.py \
 #     --input_path=datasets/contants/landcover_43200x21600.zarr \
 #     --output_path=datasets/contants/landcover-usa_%{grid_shape}-bilinear.zarr \
@@ -169,13 +170,13 @@ done
 #     --latitude_spacing=equiangular_without_poles \
 #     --regridding_method=bilinear \
 #     --runner=DirectRunner
-#   # time python -u ./scripts/regrid.py \
-#   #   --input_path=datasets/contants/land_sea_mask_7200x3600.zarr/ \
-#   #   --output_path=datasets/contants/land_sea_mask-usa_%{grid_shape}-bilinear.zarr \
-#   #   --regridding_unit=$UNIT --longitude_nodes=$((NLON/6)) --latitude_nodes=$((NLAT/6)) --usa \
-#   #   --latitude_spacing=equiangular_without_poles \
-#   #   --regridding_method=bilinear \
-#   #   --runner=DirectRunner
+#   time python -u ./scripts/regrid.py \
+#     --input_path=datasets/contants/land_sea_mask_7200x3600.zarr/ \
+#     --output_path=datasets/contants/land_sea_mask-usa_%{grid_shape}-bilinear.zarr \
+#     --regridding_unit=$UNIT --longitude_nodes=$((NLON/6)) --latitude_nodes=$((NLAT/6)) --usa \
+#     --latitude_spacing=equiangular_without_poles \
+#     --regridding_method=bilinear \
+#     --runner=DirectRunner
 # done
 
 # for LON in 64 256 360 1440 5760; do
@@ -188,7 +189,7 @@ done
 #     --runner=DirectRunner
 # done
 
-# for LON in 64 256 360 1440; do 
+# for LON in 64 256 360 1440 3600 5760; do 
 #   LAT=$((LON/2+1))
 #   time python -u ./scripts/regrid.py \
 #     --input_path=datasets/contants/era5-constant_1440x721.zarr \
