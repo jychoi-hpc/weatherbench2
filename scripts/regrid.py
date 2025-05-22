@@ -211,7 +211,6 @@ def main(argv):
 
     t0 = time.time()
     source_ds, input_chunks = xarray_beam.open_zarr(INPUT_PATH.value)
-    import pdb; pdb.set_trace()
     if YEAR.value is not None:
         time0 = time1 = f"{YEAR.value}"
         if MONTH.value is not None:
@@ -599,8 +598,7 @@ def main(argv):
     total_chunks = sum(
         np.prod([len(c) for c in da.chunks]) for da in chunked_ds.data_vars.values()
     )
-    print(f"Total number of chunks across all variables: {total_chunks}")
-    import pdb; pdb.set_trace()
+    print(f"Total number of chunks across all variables: {total_chunks}")    
 
     with ProgressBar():
         with beam.Pipeline(runner=RUNNER.value, argv=argv) as root:
