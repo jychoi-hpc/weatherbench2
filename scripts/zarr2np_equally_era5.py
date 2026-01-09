@@ -101,7 +101,7 @@ STANDARD_VARIABLE_MAP = {
     "prcp": "total_precipitation_24hr",
     "tmin": "2m_temperature_min",
     "tmax": "2m_temperature_max",
-    "precipitation": "total_precipitation_24hr", ## IMERG
+    "precipitation": "total_precipitation_24hr",  ## IMERG
 }
 
 DAYS_PER_YEAR = 365  # 365-day year
@@ -131,6 +131,7 @@ def da2np(np_vars):
     for k in list(np_vars.keys()):
         if is_dask_collection(np_vars[k]):
             np_vars[k] = np_vars[k].compute()
+        # assert np.isnan(np_vars[k]).sum() == 0, f"NaN found in variable {k}"
         # if isinstance(np_vars[k], np.ndarray):
         #     print(k, np_vars[k].shape)
         # else:
@@ -297,6 +298,7 @@ def zarr2nc_normalize(
     sharded_time_range = sharded_time_range[
         sharded_time_range.dayofyear < daysofyear + 1
     ]
+    sharded_time_range = sharded_time_range[np.isin(sharded_time_range, xa["time"])]
 
     if partition == "train":
         filename = os.path.join(save_dir, "normalize_mean.npz")
@@ -436,6 +438,7 @@ def zarr2nc_climatology(
     sharded_time_range = sharded_time_range[
         sharded_time_range.dayofyear < daysofyear + 1
     ]
+    sharded_time_range = sharded_time_range[np.isin(sharded_time_range, xa["time"])]
 
     ## climatology
     climatology = dict()
@@ -723,6 +726,17 @@ def zarr2nc(
                 daysofyear,
             )
 
+            try:
+                subset = xa.sel({"time": sharded_time_range})
+                if len(subset["time"]) != len(sharded_time_range):
+                    raise KeyError(
+                        f"Missing times in Zarr: expected {len(sharded_time_range)}, got {len(subset['time'])}"
+                    )
+            except KeyError as e:
+                # print("KeyError:", e, sharded_time_range)
+                lock.release()
+                continue
+
             for var in TqdmWithDepth(CONSTANT_VARS, desc="constant"):
                 if (var == "orography") and (var not in xa):
                     var = "geopotential_at_surface"
@@ -749,7 +763,13 @@ def zarr2nc(
                 future_list = list()
                 var_list = list()
                 for var in TqdmWithDepth(SINGLE_LEVEL_VARS, desc="single"):
-                    print("submmit:", var, total_num_steps_per_shard, hrs_each_step, len(sharded_time_range))
+                    print(
+                        "submmit:",
+                        var,
+                        total_num_steps_per_shard,
+                        hrs_each_step,
+                        len(sharded_time_range),
+                    )
                     f = executor.submit(
                         get_data,
                         xa,
@@ -982,9 +1002,9 @@ def main(
 ):
 
     assert (
-        start_val_year > start_train_year
-        and start_test_year > start_val_year
-        and end_year > start_test_year
+        start_val_year >= start_train_year
+        and start_test_year >= start_val_year
+        and end_year >= start_test_year
     )
 
     if use_dask:
@@ -1020,7 +1040,9 @@ def main(
         PRESSURE_LEVEL_VARS = list()
         xa = xa.assign_coords(level=("level", DEFAULT_PRESSURE_LEVELS))
 
-        valid_map = {k: v for k, v in STANDARD_VARIABLE_MAP.items() if k in SINGLE_LEVEL_VARS}
+        valid_map = {
+            k: v for k, v in STANDARD_VARIABLE_MAP.items() if k in SINGLE_LEVEL_VARS
+        }
         xa = xa.rename(valid_map)
 
         ## use standard name
@@ -1029,11 +1051,18 @@ def main(
         ]
 
         ## Change unit
-        xa["total_precipitation_24hr"] = xa["total_precipitation_24hr"] / 1000.0 ## mm to m
-        xa["2m_temperature_min"] = xa["2m_temperature_min"] + 273.15 ## Celsius to K
-        xa["2m_temperature_max"] = xa["2m_temperature_max"] + 273.15 ## Celsius to K
+        xa["total_precipitation_24hr"] = (
+            xa["total_precipitation_24hr"] / 1000.0
+        )  ## mm to m
+        xa["2m_temperature_min"] = xa["2m_temperature_min"] + 273.15  ## Celsius to K
+        xa["2m_temperature_max"] = xa["2m_temperature_max"] + 273.15  ## Celsius to K
 
-    elif ("era5-daymet" in save_dir) or ("era5-prism" in save_dir) or ("era5-imerg" in source_file) or ("era5-qm-imerg" in source_file):
+    elif (
+        ("era5-daymet" in save_dir)
+        or ("era5-prism" in save_dir)
+        or ("era5-imerg" in source_file)
+        or ("era5-qm-imerg" in source_file)
+    ):
         DEFAULT_PRESSURE_LEVELS = [200, 500, 850]
         CONSTANT_VARS = [
             "land_sea_mask",
@@ -1108,7 +1137,7 @@ def main(
             "specific_humidity",
         ]
         DEFAULT_PRESSURE_LEVELS = [200, 500, 850]
-    
+
     elif ("GCM" in source_file) or ("RegCM" in source_file) or ("IMERG" in save_dir):
         print("GCM/RegCM case")
         ## handle for prism, gcm
@@ -1124,10 +1153,12 @@ def main(
             "tmax",
             "precipitation",
         ]
-        SINGLE_LEVEL_VARS = [ v for v in SINGLE_LEVEL_VARS if v in xa.data_vars]
+        SINGLE_LEVEL_VARS = [v for v in SINGLE_LEVEL_VARS if v in xa.data_vars]
         PRESSURE_LEVEL_VARS = list()
 
-        valid_map = {k: v for k, v in STANDARD_VARIABLE_MAP.items() if k in SINGLE_LEVEL_VARS}
+        valid_map = {
+            k: v for k, v in STANDARD_VARIABLE_MAP.items() if k in SINGLE_LEVEL_VARS
+        }
         xa = xa.rename(valid_map)
 
         ## use standard name
@@ -1137,11 +1168,67 @@ def main(
 
         ## Change unit
         if "total_precipitation_24hr" in xa:
-            xa["total_precipitation_24hr"] = xa["total_precipitation_24hr"] / 1000.0 ## mm to m
+            xa["total_precipitation_24hr"] = (
+                xa["total_precipitation_24hr"] / 1000.0
+            )  ## mm to m
         if "2m_temperature_min" in xa:
-            xa["2m_temperature_min"] = xa["2m_temperature_min"] + 273.15 ## Celsius to K
+            xa["2m_temperature_min"] = (
+                xa["2m_temperature_min"] + 273.15
+            )  ## Celsius to K
         if "2m_temperature_max" in xa:
-            xa["2m_temperature_max"] = xa["2m_temperature_max"] + 273.15 ## Celsius to K
+            xa["2m_temperature_max"] = (
+                xa["2m_temperature_max"] + 273.15
+            )  ## Celsius to K
+    elif "hrrr" in source_file:
+        VARIABLE_MAP = {
+            "gh": "geopotential",
+            "mslma": "mean_sea_level_pressure",
+            "q": "specific_humidity",
+            "refc": "composite_reflectivity",
+            "sp": "surface_pressure",
+            "t": "temperature",
+            "t2m": "2m_temperature",
+            "u": "u_component_of_wind",
+            "v": "v_component_of_wind",
+            "w": "vertical_velocity",
+            "orog": "orography",
+            "lsm": "land_sea_mask",
+        }
+        xa = xa.rename(VARIABLE_MAP)
+
+        CONSTANT_VARS = [
+            "land_sea_mask",
+            "latitude",
+            "orography",
+        ]
+        SINGLE_LEVEL_VARS = [
+            "2m_temperature",
+            "composite_reflectivity",
+            "mean_sea_level_pressure",
+            "surface_pressure",
+        ]
+        PRESSURE_LEVEL_VARS = [
+            "geopotential",
+            "specific_humidity",
+            "temperature",
+            "u_component_of_wind",
+            "v_component_of_wind",
+            "vertical_velocity",
+        ]
+        DEFAULT_PRESSURE_LEVELS = [
+            200,
+            300,
+            475,
+            800,
+            825,
+            850,
+            875,
+            900,
+            925,
+            950,
+            975,
+            1000,
+        ]
 
     # ## Temporary
     # CONSTANT_VARS = [
@@ -1273,8 +1360,8 @@ def main(
 
             if "norm" in task_list:
                 print(">>> norm")
-                # zarr2nc_normalize(xa, test_years, save_dir, "test", num_shards, **kw)
-                # zarr2nc_normalize(xa, val_years, save_dir, "val", num_shards, **kw)
+                zarr2nc_normalize(xa, test_years, save_dir, "test", num_shards, **kw)
+                zarr2nc_normalize(xa, val_years, save_dir, "val", num_shards, **kw)
                 zarr2nc_normalize(xa, train_years, save_dir, "train", num_shards, **kw)
 
             if "clim" in task_list:

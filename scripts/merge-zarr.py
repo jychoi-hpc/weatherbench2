@@ -4,11 +4,12 @@ from dask.diagnostics import ProgressBar
 import argparse
 import pandas as pd
 
+
 def macro_replace(outfile, xa):
     if "%{grid_shape}" in outfile:
-        nlon = len(xa["longitude"])
-        nlat = len(xa["latitude"])
-        grid_shape = f"{nlon}x{nlat}"
+        nlat = len(xa["lat"])
+        nlon = len(xa["lon"])
+        grid_shape = f"{nlat}x{nlon}"
 
         outfile = outfile.replace("%{grid_shape}", grid_shape)
 
@@ -29,7 +30,7 @@ def macro_replace(outfile, xa):
         if (year0 == year1) and (mon0 == mon1):
             yearmon_range = f"{year0}{mon0:02d}"
         else:
-            yearmon_range = f"{year0}{mon0:02d}-{year1+1}{(mon1+1)%12:02d}"
+            yearmon_range = f"{year0}{mon0:02d}-{year1+(mon1+1)//12}{(mon1+1)%12:02d}"
 
         outfile = outfile.replace("%{yearmon_range}", yearmon_range)
 
@@ -42,8 +43,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--outfile", help="outfile", default="output-%{grid_shape}.zarr"
     )
-    parser.add_argument("--chunk_time", type=int, default=100)
-    parser.add_argument("--join", help="join outer, inner, etc.", default="outer")
+    parser.add_argument("--chunk_time", type=int, default=1)
+    parser.add_argument("--join", help="join outer, inner, etc.", default="inner")
     parser.add_argument("--mode", help="mode", default="w")
     parser.add_argument("--dryrun", action="store_true", help="dry run")
     args = parser.parse_args()
@@ -71,12 +72,18 @@ if __name__ == "__main__":
         ds = xr.open_zarr(fname)
         ds_list.append(ds)
 
-        for var in ds.data_vars:
-            if len(ds[var].dims) < 3:
-                const_var_list.add(var)
+        # for var in ds.data_vars:
+        #     if len(ds[var].dims) < 3:
+        #         const_var_list.add(var)
 
-    xa = xr.combine_by_coords(ds_list, join=args.join, combine_attrs="override")
-    xa = xa.drop_vars(const_var_list)
+    xa = xr.combine_by_coords(
+        ds_list,
+        join=args.join,
+        combine_attrs="override",
+        # compat="override",
+        # coords="minimal",
+    )
+    # xa = xa.drop_vars(const_var_list)
 
     for var in const_var_list:
         for ds in ds_list:
@@ -105,7 +112,9 @@ if __name__ == "__main__":
         time_index = pd.DatetimeIndex(xa.time.values)
 
         # Generate the full expected range of dates
-        full_time_range = pd.date_range(start=time_index.min(), end=time_index.max(), freq="D")
+        full_time_range = pd.date_range(
+            start=time_index.min(), end=time_index.max(), freq="D"
+        )
 
         # Find missing dates
         missing_days = full_time_range.difference(time_index)
@@ -127,19 +136,19 @@ if __name__ == "__main__":
             xa.to_zarr(outfile, mode=args.mode)
         # if not args.dryrun:
         #     xa.to_netcdf(outfile.replace(".zarr", ".nc"), mode=args.mode)
-        
+
         # if args.mode == "a'":
         #     assert os.path.exists(outfile)
         #     ds = xr.open_zarr(outfile)
-            
+
         #     # Add variables
         #     for var in xa.data_vars:
         #         ds[var] = xa[var]
-            
+
         #     print("Appending:", outfile)
         #     ds.to_zarr(outfile, mode=args.mode)
         # else:
         #     print("Writing:", outfile)
         #     xa.to_zarr(outfile, mode="w")
-    
+
     print("Done.")

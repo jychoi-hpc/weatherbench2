@@ -35,7 +35,7 @@ def macro_replace(outfile, xa):
         if (year0 == year1) and (mon0 == mon1):
             yearmon_range = f"{year0}{mon0:02d}"
         else:
-            yearmon_range = f"{year0}{mon0:02d}-{year1+1}{(mon1+1)%12:02d}"
+            yearmon_range = f"{year0}{mon0:02d}-{year1+(mon1+1)//12}{(mon1+1)%12:02d}"
 
         outfile = outfile.replace("%{yearmon_range}", yearmon_range)
 
