@@ -207,7 +207,7 @@ def get_data(
     x = xdata.data
     if len(x.shape) == 1:  ## extra vars
         x = x[:, np.newaxis, np.newaxis]
-        x = np.broadcast_to(x, (len(xdata), len(xa.longitude), len(xa.latitude)))
+        x = np.broadcast_to(x, (len(xdata), len(xa.latitude), len(xa.longitude)))
 
     if len(x) < total_num_steps_per_shard:
         year = sharded_time_range[0].year
@@ -237,7 +237,7 @@ def get_data(
         if len(extra.shape) == 1:  ## extra vars
             extra = extra[:, np.newaxis, np.newaxis]
             extra = np.broadcast_to(
-                extra, (len(extra), len(xa.longitude), len(xa.latitude))
+                extra, (len(extra), len(xa.latitude), len(xa.longitude))
             )
 
         x = np.vstack((x, extra))
@@ -288,6 +288,9 @@ def zarr2nc_normalize(
     executor=None,
     daysofyear=366,
 ):
+    if len(years) == 0:
+        return
+
     ## mean and std
     sharded_time_range = pd.date_range(
         f"{years[0]}-01-01",
@@ -416,6 +419,9 @@ def zarr2nc_climatology(
     executor=None,
     daysofyear=366,
 ):
+    if len(years) == 0:
+        return
+
     filename = os.path.join(save_dir, partition, "climatology.npz")
     if os.path.exists(filename):
         ## skip when already exists

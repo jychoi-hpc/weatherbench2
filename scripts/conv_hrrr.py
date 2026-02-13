@@ -182,7 +182,8 @@ if __name__ == "__main__":
     # longitude should be in [-180, 180]
     dx = dx.rename({"longitude": "lon", "latitude": "lat", "isobaricInhPa": "level"})
     dx = dx.assign_coords(lon=((dx.lon + 180) % 360) - 180)
-    dx = dx.ffill(dim="lat").bfill(dim="lat")
+    ## FIXME: will fill missing values later
+    # dx = dx.ffill(dim="lat").bfill(dim="lat")
 
     output_path = os.path.join("regrid", args.output_path)
     output_path = macro_replace(output_path, dx)
