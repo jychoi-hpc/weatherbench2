@@ -13,6 +13,7 @@ import numpy as np
 import xesmf as xe
 from functools import partial
 import sys
+import pandas as pd
 
 def macro_replace(outfile, xa):
     if "%{grid_shape}" in outfile:
@@ -62,7 +63,7 @@ def macro_replace(outfile, xa):
 def save_to_zarr(dx, output_path, chunk_time=1):
     if os.path.exists(output_path):
         print(f"Already exists. Skip: {output_path}")
-        sys.exit()
+        return
 
     if not os.path.exists(os.path.dirname(output_path)):
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
@@ -82,6 +83,8 @@ if __name__ == "__main__":
     parser.add_argument("--day", type=int, default=None)
     parser.add_argument("--output_path", default="hrrr_%{yearmonday_range}_%{grid_shape}-bilinear.zarr")
     parser.add_argument("--deg", type=float, default=0.025, help="grid resolution in degree")
+    parser.add_argument("--nlon", type=int, default=1024, help="number of longitude points")
+    parser.add_argument("--nlat", type=int, default=512, help="number of latitude points")
     parser.add_argument("--checkonly", action='store_true', help="checkonly")
     parser.add_argument("--dryrun", action="store_true", help="dry run")
     args = parser.parse_args()
@@ -97,10 +100,18 @@ if __name__ == "__main__":
     prefix = "/lustre/orion/csc662/world-shared/irl1/HRRR_upd/%{type}/hrrr"
     # prefix = "/lustre/orion/csc662/world-shared/irl1/HRRR_upd/missing/hrrr"
 
+    ## original bound
+    # us_bounds = (
+    #     24,
+    #     54,
+    #     235,
+    #     295,
+    # )  # (lat_min, lat_max, lon_min, lon_max) or (125W, 66.5W)
+    ## new bound to crop the nan area
     us_bounds = (
-        24,
+        24.6,
         54,
-        235,
+        237.6,
         295,
     )  # (lat_min, lat_max, lon_min, lon_max) or (125W, 66.5W)
     us_lat_min, us_lat_max, us_lon_min, us_lon_max = us_bounds
@@ -155,6 +166,21 @@ if __name__ == "__main__":
         backend_kwargs=backend_kwargs,
     )
 
+    if "time" in ds.dims:
+        # Ensure time is a pandas datetime index
+        time_index = pd.DatetimeIndex(ds.time.values)
+
+        # Generate the full expected range of dates
+        full_time_range = pd.date_range(
+            start=time_index.min(), end=time_index.max(), freq="D"
+        )
+
+        # Find missing dates
+        missing_days = full_time_range.difference(time_index)
+        print("Time range:", time_index.min(), time_index.max())
+        print("Missing days:", missing_days)
+
+
     # output_path = os.path.join("regrid", args.output_path1)
     # output_path = macro_replace(output_path, ds)
     # print("output_path:", output_path)
@@ -168,10 +194,12 @@ if __name__ == "__main__":
 
 
     # Define the target uniform grid
+    nlat = args.nlat if args.nlat is not None else int((us_lat_max - us_lat_min) / args.deg)
+    nlon = args.nlon if args.nlon is not None else int((us_lon_max - us_lon_min) / args.deg)
     ds_out = xr.Dataset(
         {
-            "latitude": (["latitude"], np.arange(us_lat_min, us_lat_max, args.deg)),
-            "longitude": (["longitude"], np.arange(us_lon_min, us_lon_max, args.deg)),
+            "latitude": (["latitude"], np.arange(us_lat_min, us_lat_max, args.deg)[:nlat]),
+            "longitude": (["longitude"], np.arange(us_lon_min, us_lon_max, args.deg)[:nlon]),
         }
     )
 

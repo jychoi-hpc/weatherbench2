@@ -1295,14 +1295,14 @@ def main(
             "%{grid_shape}", f"{len(xa.longitude)}x{len(xa.latitude)}"
         )
     if "%{deg}" in save_dir:
-        deg = np.diff(xa.longitude.data)[0]
+        deg = np.round(np.diff(xa.longitude.data)[0], 4)
         save_dir = save_dir.replace("%{deg}", f"{deg}")
         if int(deg) == deg:
             save_dir = save_dir.replace("%{deg}", f"{deg:.1f}")
         else:
             save_dir = save_dir.replace("%{deg}", f"{deg}")
     if "%{arcmin}" in save_dir:
-        arcmin = np.diff(xa.longitude.data)[0] * 60
+        arcmin = np.round(np.diff(xa.longitude.data)[0] * 60, 4)
         if int(arcmin) == arcmin:
             save_dir = save_dir.replace("%{arcmin}", f"{arcmin:.1f}")
         else:
