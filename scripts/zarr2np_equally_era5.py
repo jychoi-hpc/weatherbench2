@@ -244,6 +244,26 @@ def get_data(
     return x
 
 
+def get_diff_mean_std(
+    xa, var, sharded_time_range=None, level=None, mean_dict=None, std_dict=None, diff=1
+):
+    assert mean_dict is not None and std_dict is not None, "mean_dict and std_dict must be provided"
+    print("get_diff_mean_std:", var, len(sharded_time_range))
+
+    if level is not None:
+        x = xa[var].sel(time=sharded_time_range, level=level)
+        z = (x - mean_dict[f"{var}_{level}"]) / std_dict[f"{var}_{level}"]
+    else:
+        x = xa[var].sel(time=sharded_time_range)
+        z = (x - mean_dict[var]) / std_dict[var]
+        
+    df = z.diff("time", n=diff)
+    mean = df.mean().compute()
+    std = df.std().compute()
+
+    return mean, std
+
+
 def get_mean_std(
     xa,
     var,
@@ -406,6 +426,148 @@ def zarr2nc_normalize(
         da2np(normalize_std)
         np.savez(os.path.join(save_dir, "normalize_mean.npz"), **normalize_mean)
         np.savez(os.path.join(save_dir, "normalize_std.npz"), **normalize_std)
+
+
+def zarr2nc_diff(
+    xa,
+    years,
+    save_dir,
+    partition,
+    num_shards_per_year=8,
+    hrs_each_step=6,
+    extra_steps=40,
+    executor=None,
+    daysofyear=366,
+    ndiff=1,
+):
+    if len(years) == 0:
+        return
+
+    ## mean and std
+    sharded_time_range = pd.date_range(
+        f"{years[0]}-01-01",
+        f"{years[-1]+1}-01-01",
+        freq=f"{hrs_each_step}h",
+        inclusive="left",
+    )
+    sharded_time_range = sharded_time_range[
+        sharded_time_range.dayofyear < daysofyear + 1
+    ]
+    sharded_time_range = sharded_time_range[np.isin(sharded_time_range, xa["time"])]
+
+    mean_dict = dict()
+    fname = os.path.join(save_dir, "normalize_mean.npz")
+    with np.load(fname) as f:
+        for var in f:
+            mean_dict[var] = f[var]
+
+    std_dict = dict()
+    fname = os.path.join(save_dir, "normalize_std.npz")
+    with np.load(fname) as f:
+        for var in f:
+            std_dict[var] = f[var]
+
+    if partition == "train":
+        filename = os.path.join(save_dir, f"diff{ndiff}_normalize_mean.npz")
+        if os.path.exists(filename):
+            ## skip when already exists
+            return
+        lockfile = os.path.join(save_dir, f".diff{ndiff}_normalize_mean.npz.lock")
+        lock = SoftFileLock(lockfile, timeout=0)
+        try:
+            lock.acquire()
+        except Timeout:
+            ## someone is working
+            return
+
+        diff_normalize_mean = dict()
+        diff_normalize_std = dict()
+
+        for var in TqdmWithDepth(CONSTANT_VARS, desc="constant"):
+            diff_normalize_mean[var] = [0.0]
+            diff_normalize_std[var] = [1.0]
+
+        if executor is not None:
+            future_list = list()
+            var_list = list()
+            for var in TqdmWithDepth(SINGLE_LEVEL_VARS, desc="single"):
+                f = executor.submit(
+                    get_diff_mean_std,
+                    xa,
+                    var,
+                    sharded_time_range=sharded_time_range,
+                    mean_dict=mean_dict,
+                    std_dict=std_dict,
+                    diff=ndiff,
+                )
+                future_list.append(f)
+                var_list.append(var)
+
+            for var, f in TqdmWithDepth(
+                zip(var_list, future_list),
+                desc="single (concurrent)",
+                total=len(future_list),
+            ):
+                mean, std = f.result()
+                diff_normalize_mean[var] = [mean]
+                diff_normalize_std[var] = [std]
+        else:
+            for var in TqdmWithDepth(SINGLE_LEVEL_VARS, desc="single"):
+                x = xa[var].sel(time=sharded_time_range)
+                z = (x - mean_dict[var]) / std_dict[var]
+                df = z.diff("time", n=ndiff)
+                mean = df.mean().compute()
+                std = df.std().compute()
+                diff_normalize_mean[var] = [mean]
+                diff_normalize_std[var] = [std]
+
+        if executor is not None:
+            future_list = list()
+            var_list = list()
+            level_list = list()
+            for var in TqdmWithDepth(PRESSURE_LEVEL_VARS, desc="pressure"):
+                for level in TqdmWithDepth(DEFAULT_PRESSURE_LEVELS, desc="level"):
+                    f = executor.submit(
+                        get_diff_mean_std,
+                        xa,
+                        var,
+                        sharded_time_range=sharded_time_range,
+                        level=level,
+                        mean_dict=mean_dict,
+                        std_dict=std_dict,
+                        diff=ndiff,
+                    )
+                    future_list.append(f)
+                    var_list.append(var)
+                    level_list.append(level)
+
+            for var, level, f in TqdmWithDepth(
+                zip(var_list, level_list, future_list),
+                desc="pressure (concurrent)",
+                total=len(future_list),
+            ):
+                mean, std = f.result()
+                diff_normalize_mean[f"{var}_{level}"] = [mean]
+                diff_normalize_std[f"{var}_{level}"] = [std]
+        else:
+            for var in TqdmWithDepth(PRESSURE_LEVEL_VARS, desc="pressure"):
+                for level in TqdmWithDepth(DEFAULT_PRESSURE_LEVELS, desc="level"):
+                    x = xa[var].sel(time=sharded_time_range, level=level)
+                    z = (x - mean_dict[f"{var}_{level}"]) / std_dict[f"{var}_{level}"]
+                    df = z.diff("time", n=ndiff)
+                    mean = df.mean().compute()
+                    std = df.std().compute()
+                    diff_normalize_mean[f"{var}_{level}"] = [mean]
+                    diff_normalize_std[f"{var}_{level}"] = [std]
+
+        da2np(diff_normalize_mean)
+        da2np(diff_normalize_std)
+        np.savez(
+            os.path.join(save_dir, f"diff{ndiff}_normalize_mean.npz"), **diff_normalize_mean
+        )
+        np.savez(
+            os.path.join(save_dir, f"diff{ndiff}_normalize_std.npz"), **diff_normalize_std
+        )
 
 
 def zarr2nc_climatology(
@@ -1384,6 +1546,18 @@ def main(
 
                 ## same for all: train, val, and test
                 zarr2nc_wb(xa, xb, save_dir)
+
+            if "diff" in task_list:
+                print(">>> diff")
+                zarr2nc_diff(xa, test_years, save_dir, "test", num_shards, **kw)
+                zarr2nc_diff(xa, val_years, save_dir, "val", num_shards, **kw)
+                zarr2nc_diff(xa, train_years, save_dir, "train", num_shards, **kw)
+
+            if "diff6" in task_list:
+                print(">>> diff6")
+                zarr2nc_diff(xa, test_years, save_dir, "test", num_shards, ndiff=6, **kw)
+                zarr2nc_diff(xa, val_years, save_dir, "val", num_shards, ndiff=6, **kw)
+                zarr2nc_diff(xa, train_years, save_dir, "train", num_shards, ndiff=6, **kw)
 
             if "main" in task_list:
                 print(">>> main")
