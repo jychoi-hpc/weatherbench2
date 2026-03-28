@@ -4,6 +4,7 @@ import glob
 import os
 import sys
 
+
 def check_npz_for_nans(file_path, fast=False, verbose=True):
     """Check if there are any NaNs in the variables of a .npz file."""
 
@@ -28,24 +29,31 @@ def check_npz_for_nans(file_path, fast=False, verbose=True):
         variable = data[var_name]
         if verbose:
             print(f"{var_name}:", variable.shape, variable.mean(), variable.dtype)
-        
+
         # Check for NaN values
         if np.isnan(variable).any():
             print(f"{var_name}  - Found NaNs", variable.shape)
             status += 1
+
+    if verbose:
+        print("=================================")
+        print("Time info:")
+        print("days_of_year:", np.unique(data["days_of_year"]))
+        print("time_of_day:", np.unique(data["time_of_day"]))
+        print("hrs_each_step:", np.unique(data["hrs_each_step"]))
 
     # Close the .npz file
     data.close()
 
     return status
 
+
 if __name__ == "__main__":
     # Set up argument parsing
     parser = argparse.ArgumentParser(description="Check for NaNs in an NPZ file")
     parser.add_argument("file", type=str, help="Path to the .npz file")
-    parser.add_argument("--fast", action='store_true', help="fast check")
-    parser.add_argument("-v", "--verbose", action='store_true', help="verbose")
-    parser.add_argument("-i", "--timeinfo", action='store_true', help="time info")
+    parser.add_argument("--fast", action="store_true", help="fast check")
+    parser.add_argument("-v", "--verbose", action="store_true", help="verbose")
     args = parser.parse_args()
 
     if os.path.isfile(args.file):
@@ -56,6 +64,5 @@ if __name__ == "__main__":
         files = sorted(files)
         for file in files:
             if os.path.isfile(file):
-                status += check_npz_for_nans(file, args.fast, args.verbose)    
+                status += check_npz_for_nans(file, args.fast, args.verbose)
     sys.exit(status)
-
